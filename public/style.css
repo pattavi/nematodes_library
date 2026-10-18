@@ -30,6 +30,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .chip.on, .letters button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .status { display: flex; gap: 12px; align-items: center; margin: 8px 0; color: var(--muted); }
 .link { border: 0; background: none; color: var(--accent); text-decoration: underline; padding: 0; }
+[hidden] { display: none !important; } /* author display rules (grid/flex) would otherwise override the hidden attribute */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
 .letter-h { grid-column: 1 / -1; margin: 10px 0 0; font-size: 1.1rem; color: var(--accent);
   border-bottom: 1px solid var(--line); }
