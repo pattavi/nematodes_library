@@ -2,7 +2,7 @@ const I18N = {
   th: {
     title: 'ห้องสมุดไส้เดือนฝอย',
     subtitle: 'ภาพและข้อมูลไส้เดือนฝอย ระดับสกุลและชนิด',
-    search: 'ค้นหาสกุล ชนิด วงศ์ หรือรายละเอียด',
+    search: 'พิมพ์ตัวอักษรแรกของชื่อสกุลหรือชนิด',
     speciesWord: 'ชนิด', speciesTitle: 'ชนิดในสกุลนี้', noSpecies: 'ยังไม่มีชนิดในสกุลนี้', otherSpecies: 'ชนิดอื่นในสกุลเดียวกัน',
     addSpecies: '+ เพิ่มชนิด', editSpecies: 'แก้ไขชนิด', deleteSpecies: 'ลบชนิด',
     fSpecies: 'ชื่อชนิด (species epithet) เช่น incognita หรือ sp.', fAuthority: 'ผู้ตั้งชื่อและปี (authority)',
@@ -73,7 +73,7 @@ const I18N = {
   en: {
     title: 'Nematode Library',
     subtitle: 'Images and details of nematodes, by genus and species',
-    search: 'Search genus, species, family or notes',
+    search: 'Type the first letters of a genus or species name',
     speciesWord: 'species', speciesTitle: 'Species in this genus', noSpecies: 'No species in this genus yet', otherSpecies: 'Other species in this genus',
     addSpecies: '+ Add species', editSpecies: 'Edit species', deleteSpecies: 'Delete species',
     fSpecies: 'Species epithet, e.g. incognita or sp.', fAuthority: 'Authority (author and year)',

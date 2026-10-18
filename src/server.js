@@ -54,32 +54,35 @@ app.get('/api/health', (req, res) => {
 });
 
 // ---- filters ----
-// Free-text search matches genus fields, and species names/authority/notes. "Meloidogyne incognita" works too.
+// Free-text search is by name prefix: "a" shows every name starting with a, "ap" narrows it. "Meloidogyne inc" works too.
 const likeOf = (q) => `%${q.trim().replace(/[\\%_]/g, '\\$&')}%`;
-const GENUS_MATCH = `(g.genus LIKE @q ESCAPE '\\' OR g.family LIKE @q ESCAPE '\\' OR g.notes_th LIKE @q ESCAPE '\\' OR g.notes_en LIKE @q ESCAPE '\\')`;
-const SPECIES_MATCH = `((g.genus || ' ' || s.species) LIKE @q ESCAPE '\\' OR s.authority LIKE @q ESCAPE '\\'
-  OR s.notes_th LIKE @q ESCAPE '\\' OR s.notes_en LIKE @q ESCAPE '\\')`;
 
-// Genus level (alias g): a genus matches if its own fields match or any of its species match.
+// Genus level (alias g): a genus matches if its name or any of its "Genus species" names starts with the text.
 function genusFilter(query) {
   const { q = '', feeding = '', letter = '' } = query;
   const where = [];
   const args = {};
   if (q.trim()) {
-    where.push(`(${GENUS_MATCH} OR EXISTS (SELECT 1 FROM species s WHERE s.genus_id = g.id AND ${SPECIES_MATCH}))`);
-    args.q = likeOf(q);
+    // List search is by name prefix: typing "a" shows every genus starting with a, "ap" narrows it, and so on.
+    // A species also counts when "Genus species" starts with the text (e.g. "Meloidogyne inc").
+    where.push(`(g.genus LIKE @q ESCAPE '\\' OR EXISTS (SELECT 1 FROM species s WHERE s.genus_id = g.id
+      AND (g.genus || ' ' || s.species) LIKE @q ESCAPE '\\'))`);
+    args.q = likeOf(q).slice(1); // anchored at the start: drop the leading %
   }
   if (feeding) { where.push('g.feeding_group = @feeding'); args.feeding = feeding; }
   if (/^[a-z]$/i.test(letter)) { where.push('g.genus LIKE @letter'); args.letter = `${letter}%`; }
   return { where, args };
 }
 
-// Species level (aliases g and s): a species matches if its genus fields or its own fields match.
+// Species level (aliases g and s): a species matches if its genus name or "Genus species" starts with the text.
 function speciesFilter(query) {
   const { q = '', feeding = '', letter = '' } = query;
   const where = [];
   const args = {};
-  if (q.trim()) { where.push(`(${GENUS_MATCH} OR ${SPECIES_MATCH})`); args.q = likeOf(q); }
+  if (q.trim()) { // same name-prefix search as the genus list
+    where.push(`(g.genus LIKE @q ESCAPE '\\' OR (g.genus || ' ' || s.species) LIKE @q ESCAPE '\\')`);
+    args.q = likeOf(q).slice(1);
+  }
   if (feeding) { where.push('g.feeding_group = @feeding'); args.feeding = feeding; }
   if (/^[a-z]$/i.test(letter)) { where.push('g.genus LIKE @letter'); args.letter = `${letter}%`; }
   return { where, args };
