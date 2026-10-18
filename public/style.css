@@ -67,3 +67,14 @@ dl.facts dt { color: var(--muted); } dl.facts dd { margin: 0; }
 .minimap { height: 240px; border-radius: 10px; border: 1px solid var(--line); }
 ul.locs { list-style: none; padding: 0; margin: 8px 0 0; font-size: .9rem; }
 ul.locs li { padding: 2px 0; }
+
+/* admin / login */
+.right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.adminbtn { border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 6px 12px; }
+.adminbtn.on { border-color: var(--accent); color: var(--accent); }
+.login { width: min(360px, calc(100vw - 24px)); }
+.login form { padding: 0 16px 16px; display: grid; gap: 10px; }
+.login input { padding: 9px 12px; font: inherit; color: inherit; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.login .primary { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 9px; }
+.login .err { color: #b3261e; margin: 0; min-height: 1.3em; }
+.login .info { padding: 0 16px 16px; margin: 0; }

@@ -205,7 +205,58 @@
     }
   });
 
-  function update() { writeUrl(); renderStatic(); renderChips(); load(); renderDetail(); }
+  // ---- admin session ----
+  const lgn = $('login');
+  const sess = { admin: false, enabled: true };
+
+  async function loadSession() {
+    try {
+      const j = await (await fetch('/api/session')).json();
+      sess.admin = !!j.admin; sess.enabled = !!j.login_enabled;
+    } catch { sess.admin = false; }
+    renderAdminBtn();
+  }
+
+  function renderAdminBtn() {
+    const L = t(), b = $('admin-btn');
+    b.classList.toggle('on', sess.admin);
+    b.textContent = sess.admin ? `${L.adminOn} · ${L.logout}` : L.adminLogin;
+    if (!sess.admin && !sess.enabled) b.title = L.loginDisabled; else b.removeAttribute('title');
+  }
+
+  function openLogin() {
+    const L = t();
+    lgn.innerHTML = `<div class="d-head"><h2 id="l-title" style="font-style:normal">${esc(L.adminLogin)}</h2>
+        <button class="d-close" type="button" data-lclose>${esc(L.close)}</button></div>
+      ${sess.enabled ? `<form id="lform" autocomplete="off">
+        <input id="lpw" type="password" placeholder="${esc(L.password)}" aria-label="${esc(L.password)}" maxlength="200" required>
+        <p id="lerr" class="err" role="alert"></p>
+        <button class="primary" type="submit">${esc(L.signIn)}</button></form>`
+        : `<p class="info">${esc(L.loginDisabled)}</p>`}`;
+    lgn.showModal();
+    const pw = $('lpw'); if (pw) pw.focus();
+  }
+
+  lgn.addEventListener('click', (e) => { if (e.target === lgn || e.target.closest('[data-lclose]')) lgn.close(); });
+  lgn.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const L = t(), err = $('lerr'), pw = $('lpw');
+    err.textContent = '';
+    try {
+      const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw.value }) });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { lgn.close(); await loadSession(); return; }
+      pw.value = '';
+      err.textContent = r.status === 401 ? L.wrongPw : r.status === 429 ? L.locked(j.retry_after || 60) : L.loginErr;
+    } catch { err.textContent = L.loginErr; }
+  });
+  $('admin-btn').addEventListener('click', async () => {
+    if (sess.admin) { try { await fetch('/api/logout', { method: 'POST' }); } catch {} await loadSession(); }
+    else openLogin();
+  });
+
+  function update() { writeUrl(); renderStatic(); renderChips(); load(); renderDetail(); renderAdminBtn(); }
 
   let timer;
   $('q').addEventListener('input', (e) => {
@@ -237,6 +288,7 @@
     $('q').value = state.q;
     try { meta = await (await fetch('/api/meta')).json(); } catch {}
     update();
+    loadSession();
     syncHash();
   })();
 })();

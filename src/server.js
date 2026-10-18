@@ -6,7 +6,13 @@ const { open } = require('./db');
 const app = express();
 const db = open();
 
+const auth = require('./auth').create();
+
 app.use(express.json());
+app.use('/api', auth.guardWrites);
+app.post('/api/login', auth.login);
+app.post('/api/logout', auth.logout);
+app.get('/api/session', auth.status);
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.get('/api/health', (req, res) => {
@@ -56,6 +62,8 @@ app.get('/api/meta', (req, res) => {
   const letters = db.prepare(`SELECT DISTINCT UPPER(SUBSTR(genus,1,1)) AS l FROM genera ORDER BY l`).all().map((r) => r.l);
   res.json({ feeding, letters });
 });
+
+app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
 
 // Never leak server paths or stack traces in error responses.
 app.use((err, req, res, next) => {

@@ -13,9 +13,12 @@
     <h1 id="title"></h1>
     <p id="subtitle" class="muted"></p>
   </div>
+  <div class="right">
+  <button id="admin-btn" class="adminbtn"></button>
   <div class="lang" role="group" aria-label="Language">
     <button data-lang="th">ไทย</button>
     <button data-lang="en">EN</button>
+  </div>
   </div>
 </header>
 
@@ -37,6 +40,7 @@
   <p id="msg" class="muted" hidden></p>
 </main>
 
+<dialog id="login" class="detail login" aria-labelledby="l-title"></dialog>
 <dialog id="detail" class="detail" aria-labelledby="d-title"></dialog>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
