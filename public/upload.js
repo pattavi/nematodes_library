@@ -10,7 +10,8 @@
   lang = lang === 'en' ? 'en' : 'th';
   const t = () => I18N[lang];
 
-  const S = { admin: false, enabled: true, genera: [], provinces: [], feeding: [], files: [], points: [], busy: false, done: null };
+  const S = { admin: false, enabled: true, genera: [], provinces: [], feeding: [], files: [], points: [], busy: false, done: null,
+    genusSel: '', speciesSel: '', speciesList: [], ng: null, ns: null };
   let nid = 0;
   const provName = (p) => (lang === 'th' ? p.th : p.key);
 
@@ -21,6 +22,29 @@
       S.admin = !!s.admin; S.enabled = !!s.login_enabled;
       S.genera = g.items; S.provinces = p.items; S.feeding = m.feeding_options || [];
     } catch {}
+  }
+
+  async function loadSpecies(genusId) {
+    S.speciesList = [];
+    if (genusId && genusId !== 'new') {
+      try { S.speciesList = (await (await fetch(`/api/genera/${genusId}`)).json()).species || []; } catch {}
+    }
+  }
+
+  // /upload?species=ID selects both; /upload?genus=ID selects the genus only
+  async function preselect() {
+    const sp = params.get('species'), ge = params.get('genus');
+    if (sp && /^\d+$/.test(sp)) {
+      try {
+        const r = await fetch(`/api/species/${sp}`);
+        if (r.ok) {
+          const j = await r.json();
+          S.genusSel = String(j.genus_id); S.speciesSel = String(j.id); S.speciesList = j.siblings;
+          return;
+        }
+      } catch {}
+    }
+    if (ge && /^\d+$/.test(ge) && S.genera.some((g) => String(g.id) === ge)) { S.genusSel = ge; await loadSpecies(ge); }
   }
 
   // ---- render ----
@@ -57,12 +81,11 @@
     }
     if (S.done) return renderDone();
     if (!S.points.length) S.points.push({ id: ++nid, province: '', lat: '', lng: '' });
-    const pre = params.get('genus');
     root.innerHTML = `<form id="up" class="upcard gform" novalidate>
       <label>${esc(L.selGenus)}
         <select id="genus">
           <option value="">${esc(L.chooseGenus)}</option>
-          ${S.genera.map((g) => `<option value="${g.id}"${String(g.id) === (S.genusSel ?? pre) ? ' selected' : ''}>${esc(g.genus)}</option>`).join('')}
+          ${S.genera.map((g) => `<option value="${g.id}"${String(g.id) === S.genusSel ? ' selected' : ''}>${esc(g.genus)}</option>`).join('')}
           <option value="new"${S.genusSel === 'new' ? ' selected' : ''}>${esc(L.newGenusOpt)}</option>
         </select></label>
       <div id="newg" ${S.genusSel === 'new' ? '' : 'hidden'} class="newg">
@@ -76,6 +99,9 @@
           ${[1, 2, 3, 4, 5].map((n) => `<option value="${n}"${String(S.ng?.cp) === String(n) ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
       </div>
       <p class="ferr" data-err="genus"></p>
+
+      <div id="spbox" class="spbox">${speciesBoxHtml()}</div>
+      <p class="ferr" data-err="species"></p>
 
       <h3>${esc(L.imagesTitle)}</h3>
       <div id="drop" class="drop" tabindex="0" role="button">
@@ -97,6 +123,27 @@
     </form>`;
     renderFiles(); renderPoints();
   }
+
+  // Species picker: existing species of the chosen genus, or a new one (always new when the genus is new).
+  function speciesBoxHtml() {
+    const L = t();
+    if (!S.genusSel) return `<p class="muted">${esc(L.pickGenusFirst)}</p>`;
+    const isNewGenus = S.genusSel === 'new';
+    const select = isNewGenus ? '' : `<label>${esc(L.selSpecies)}
+        <select id="species">
+          <option value="">${esc(L.chooseSpecies)}</option>
+          ${S.speciesList.map((s) => `<option value="${s.id}"${String(s.id) === S.speciesSel ? ' selected' : ''}>${esc(s.species)}</option>`).join('')}
+          <option value="new"${S.speciesSel === 'new' ? ' selected' : ''}>${esc(L.newSpeciesOpt)}</option>
+        </select></label>`;
+    const showNew = isNewGenus || S.speciesSel === 'new';
+    const fields = showNew ? `<div class="newg">
+        <label>${esc(L.nsNameReq)}<input id="ns-name" maxlength="100" placeholder="incognita" value="${esc(S.ns?.name || '')}"></label>
+        <label>${esc(L.nsAuth)}<input id="ns-auth" maxlength="200" value="${esc(S.ns?.auth || '')}"></label>
+        <p class="muted">${esc(L.spHint)}</p></div>` : '';
+    return select + fields;
+  }
+
+  function renderSpeciesBox() { $('spbox').innerHTML = speciesBoxHtml(); }
 
   function renderFiles() {
     const L = t();
@@ -125,6 +172,7 @@
     $('root').innerHTML = `<div class="upcard"><h2>${esc(L.done)}</h2><p>${esc(L.doneSummary(d.images, d.points))}</p>
       ${d.warnings.map((w) => `<p class="ferr">${esc(w)}</p>`).join('')}
       <div class="btns"><a class="plain btnlink" href="/#G${d.genusId}">${esc(L.viewGenus)}</a>
+        <a class="plain btnlink" href="/#S${d.speciesId}">${esc(L.viewSpecies)}</a>
         <button class="primary" id="more">${esc(L.uploadMore)}</button></div></div>`;
   }
 
@@ -161,13 +209,13 @@
 
   const jpost = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
-  function sendImages(genusId, files, credit, onProgress) {
+  function sendImages(speciesId, files, credit, onProgress) {
     return new Promise((resolve) => {
       const fd = new FormData();
       files.forEach((f) => { fd.append('images', f.file); fd.append('caption_th', f.th); fd.append('caption_en', f.en); });
       if (credit) fd.append('credit', credit);
       const x = new XMLHttpRequest();
-      x.open('POST', `/api/genera/${genusId}/images`);
+      x.open('POST', `/api/species/${speciesId}/images`);
       x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
       x.onload = () => { let j = {}; try { j = JSON.parse(x.responseText); } catch {} resolve({ status: x.status, body: j }); };
       x.onerror = () => resolve({ status: 0, body: {} });
@@ -179,9 +227,12 @@
     if (S.busy) return;
     const L = t();
     ['genus', 'files', 'points', 'form'].forEach((k) => setErr(k, ''));
-    const sel = $('genus').value;
+    const sel = S.genusSel;
     const pts = collectPoints();
     if (!sel) return setErr('genus', L.eNeedGenus);
+    const newSpecies = sel === 'new' || S.speciesSel === 'new';
+    if (!newSpecies && !S.speciesSel) return setErr('species', L.eNeedSpecies);
+    if (newSpecies && !(S.ns && S.ns.name && S.ns.name.trim())) return setErr('species', L.eSpeciesRequired);
     if (pts.error) return setErr('points', pts.error);
     if (!S.files.length && !pts.points.length) return setErr('form', L.eNeedAny);
 
@@ -204,11 +255,26 @@
         // from here on the genus exists: remember it so a retry does not try to create it again
         S.genera.push({ id: j.id, genus: body.genus.trim() });
         S.genusSel = genusId; S.ng = null;
+        render(); // the form now shows the real genus
+      }
+      let speciesId = S.speciesSel;
+      if (newSpecies) {
+        const r = await jpost(`/api/genera/${genusId}/species`, { species: S.ns.name, authority: S.ns.auth || '' });
+        const j = await r.json().catch(() => ({}));
+        if (r.status === 401) { await loadAll(); render(); return; }
+        if (!r.ok) {
+          setErr('species', { required: L.eSpeciesRequired, duplicate: L.eSpeciesDup }[j.error] || L.eSpeciesInvalid);
+          return;
+        }
+        speciesId = String(j.id);
+        S.speciesList.push({ id: j.id, species: S.ns.name.trim() });
+        S.speciesSel = speciesId; S.ns = null;
+        render();
       }
       let imgCount = 0, ptCount = 0;
       if (S.files.length) {
         showProg(0, L.uploading);
-        const res = await sendImages(genusId, S.files, $('credit').value.trim(), (f) => showProg(f * 0.9, `${L.uploading} ${Math.round(f * 100)}%`));
+        const res = await sendImages(speciesId, S.files, $('credit').value.trim(), (f) => showProg(f * 0.9, `${L.uploading} ${Math.round(f * 100)}%`));
         if (res.status === 401) { await loadAll(); render(); return; }
         if (res.status === 413) { setErr('files', L.eSize('')); return; }
         if (!res.body.created) { setErr('form', L.eSave); return; }
@@ -217,13 +283,13 @@
       }
       for (const p of pts.points) {
         showProg(0.95, L.uploading);
-        const r = await jpost(`/api/genera/${genusId}/locations`, p);
+        const r = await jpost(`/api/species/${speciesId}/locations`, p);
         if (r.ok) ptCount++; else warnings.push(L.ePointRange(1));
       }
       showProg(1, '100%');
       S.files.forEach((f) => URL.revokeObjectURL(f.url));
       S.files = []; S.points = []; S.credit = '';
-      S.done = { images: imgCount, points: ptCount, genusId, warnings };
+      S.done = { images: imgCount, points: ptCount, genusId, speciesId, warnings };
       render();
     } catch {
       setErr('form', L.eSave);
@@ -282,7 +348,13 @@
   document.addEventListener('change', (e) => {
     if (e.target.id === 'genus') {
       S.genusSel = e.target.value; $('newg').hidden = S.genusSel !== 'new';
+      S.speciesSel = S.genusSel === 'new' ? 'new' : '';
+      loadSpecies(S.genusSel).then(renderSpeciesBox);
+      renderSpeciesBox();
       if (S.genusSel === 'new') $('ng-name').focus();
+    } else if (e.target.id === 'species') {
+      S.speciesSel = e.target.value; renderSpeciesBox();
+      if (S.speciesSel === 'new') $('ns-name').focus();
     } else if (e.target.id === 'file') { addFiles([...e.target.files]); e.target.value = ''; }
     else if (e.target.closest('.prow')) {
       const p = S.points.find((x) => String(x.id) === e.target.closest('.prow').dataset.pid);
@@ -297,6 +369,8 @@
     if (e.target.id === 'credit') S.credit = e.target.value;
     if (e.target.id === 'ng-name') (S.ng = S.ng || {}).name = e.target.value;
     if (e.target.id === 'ng-fam') (S.ng = S.ng || {}).fam = e.target.value;
+    if (e.target.id === 'ns-name') (S.ns = S.ns || {}).name = e.target.value;
+    if (e.target.id === 'ns-auth') (S.ns = S.ns || {}).auth = e.target.value;
   });
 
   document.addEventListener('click', async (e) => {
@@ -327,6 +401,7 @@
 
   (async () => {
     await loadAll();
+    await preselect();
     if (S.points.length === 0) S.points.push({ id: ++nid, province: '', lat: '', lng: '' });
     render();
   })();

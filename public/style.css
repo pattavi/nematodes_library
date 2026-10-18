@@ -164,3 +164,8 @@ a.chip { text-decoration: none; color: inherit; }
 @media (max-width: 480px) { .sprow { grid-template-columns: 48px 1fr; } .spcount { grid-column: 2; text-align: left; } }
 .mg.genus { margin-top: 6px; font-weight: 600; }
 .mg.sp { margin-left: 14px; }
+
+/* upload: species picker */
+.spbox { display: grid; gap: 10px; }
+.spbox .newg { margin: 0; }
+.btnlink.mini { padding: 0 10px; margin-left: 6px; font-size: .85rem; }

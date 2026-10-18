@@ -315,6 +315,7 @@
           ${n > 1 ? `<button class="nav prev" data-slide="-1" aria-label="${esc(L.prev)}">‹</button>
                      <button class="nav next" data-slide="1" aria-label="${esc(L.next)}">›</button>` : ''}</div>
         ${n > 1 ? `<div class="dots">${s.images.map((_, i) => `<span class="${i === slide ? 'on' : ''}"></span>`).join('')}</div>` : ''}
+        ${sess.admin ? `<a class="plain btnlink mini" href="/upload?species=${s.id}${state.lang === 'en' ? '&lang=en' : ''}">${esc(L.uploadBtn)}</a>` : ''}
         ${sess.admin && im ? `<button class="plain mini" data-delimg="${im.id}">${esc(L.delImg)}</button>` : ''}
         ${cap || (im && im.credit) ? `<p class="cap">${esc(cap)}${im.credit ? ` ${cap ? '· ' : ''}${esc(L.credit)}: ${esc(im.credit)}` : ''}</p>` : ''}
         ${factsHtml([[L.fAuthority, s.authority], [L.family, g.family], [L.feeding_label, g.feeding_group && (L.feeding[g.feeding_group] || g.feeding_group)],
