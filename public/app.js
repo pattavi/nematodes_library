@@ -27,7 +27,7 @@
     if (state.sort !== 'asc') p.set('sort', state.sort);
     if (state.lang === 'en') p.set('lang', 'en');
     const qs = p.toString();
-    history.replaceState(null, '', qs ? `?${qs}` : location.pathname);
+    history.replaceState(null, "", (qs ? `?${qs}` : location.pathname) + location.hash);
   }
 
   const activeFilters = () => (state.q ? 1 : 0) + (state.feeding ? 1 : 0) + (state.letter ? 1 : 0);
@@ -109,7 +109,103 @@
     }
   }
 
-  function update() { writeUrl(); renderStatic(); renderChips(); load(); }
+  // ---- detail dialog ----
+  const dlg = $('detail');
+  let cur = null, slide = 0, map = null, dseq = 0;
+  const pick = (g, base) => g[`${base}_${state.lang}`] || g[`${base}_${state.lang === 'th' ? 'en' : 'th'}`] || '';
+
+  function destroyMap() { if (map) { map.remove(); map = null; } }
+
+  function renderDetail() {
+    if (!cur) return;
+    const L = t(), g = cur, n = g.images.length;
+    slide = Math.min(slide, Math.max(0, n - 1));
+    const im = g.images[slide];
+    const cap = im ? pick(im, 'caption') : '';
+    const facts = [
+      [L.family, g.family], [L.feeding_label, g.feeding_group && (L.feeding[g.feeding_group] || g.feeding_group)],
+      [L.cp, g.cp_value], [L.code, g.internal_code],
+    ].filter(([, v]) => v != null && v !== '');
+    const note = pick(g, 'notes');
+    destroyMap();
+    dlg.innerHTML = `
+      <div class="d-head"><h2 id="d-title">${esc(g.genus)}</h2>
+        <button class="d-close" data-close>${esc(L.close)}</button></div>
+      <div class="d-body">
+        <div class="slides">${im ? `<img src="/uploads/${encodeURIComponent(im.file)}" alt="${esc(g.genus)}">` : esc(L.noImage)}
+          ${n > 1 ? `<button class="nav prev" data-slide="-1" aria-label="${esc(L.prev)}">‹</button>
+                     <button class="nav next" data-slide="1" aria-label="${esc(L.next)}">›</button>` : ''}</div>
+        ${n > 1 ? `<div class="dots">${g.images.map((_, i) => `<span class="${i === slide ? 'on' : ''}"></span>`).join('')}</div>` : ''}
+        ${cap || (im && im.credit) ? `<p class="cap">${esc(cap)}${im.credit ? ` ${cap ? '· ' : ''}${esc(L.credit)}: ${esc(im.credit)}` : ''}</p>` : ''}
+        <dl class="facts">${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+        ${note ? `<h3>${esc(L.notes)}</h3><p>${esc(note)}</p>` : ''}
+        <h3>${esc(L.locations)} (${g.locations.length})</h3>
+        ${g.locations.length ? `<div id="minimap" class="minimap"></div>
+          <ul class="locs">${g.locations.map((p) => `<li>${esc(p.province)} · ${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}${p.is_sample ? ` <span class="muted">(${esc(L.sample)})</span>` : ''}</li>`).join('')}</ul>`
+          : `<p class="muted">${esc(L.noLocations)}</p>`}
+      </div>`;
+    if (g.locations.length) drawMiniMap(g.locations);
+  }
+
+  function drawMiniMap(locs) {
+    const el = $('minimap');
+    if (typeof L === 'undefined' || !window.L) { el.textContent = t().mapFail; return; }
+    map = window.L.map(el, { scrollWheelZoom: false });
+    window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18, attribution: '&copy; OpenStreetMap contributors',
+    }).addTo(map);
+    const pts = locs.map((p) => {
+      const m = window.L.circleMarker([p.lat, p.lng], { radius: 7, color: '#fff', weight: 2, fillColor: '#2f6f4e', fillOpacity: 1 }).addTo(map);
+      const tip = document.createElement('span');
+      tip.textContent = `${p.province} (${p.lat.toFixed(4)}, ${p.lng.toFixed(4)})`;
+      m.bindTooltip(tip);
+      return [p.lat, p.lng];
+    });
+    if (pts.length === 1) map.setView(pts[0], 9); else map.fitBounds(pts, { padding: [24, 24], maxZoom: 10 });
+  }
+
+  async function openDetail(id) {
+    const my = ++dseq;
+    let g = null;
+    try {
+      const r = await fetch(`/api/genera/${id}`);
+      if (r.ok) g = await r.json();
+    } catch {}
+    if (my !== dseq) return;
+    if (!g) {
+      cur = null;
+      dlg.innerHTML = `<div class="d-head"><h2>${esc(t().notFound)}</h2><button class="d-close" data-close>${esc(t().close)}</button></div>`;
+    } else { cur = g; slide = 0; renderDetail(); }
+    if (!dlg.open) dlg.showModal();
+    if (map) map.invalidateSize();
+  }
+
+  function closeDetail() {
+    dseq++;
+    if (dlg.open) dlg.close();
+    destroyMap(); cur = null;
+    if (/^#G\d+$/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
+  }
+
+  function syncHash() {
+    const m = /^#G(\d+)$/.exec(location.hash);
+    if (m) openDetail(m[1]); else if (dlg.open) { dseq++; dlg.close(); destroyMap(); cur = null; }
+  }
+  window.addEventListener('hashchange', syncHash);
+  dlg.addEventListener('click', (e) => {
+    if (e.target === dlg || e.target.closest('[data-close]')) return closeDetail();
+    const s = e.target.closest('[data-slide]');
+    if (s && cur) { const n = cur.images.length; slide = (slide + Number(s.dataset.slide) + n) % n; renderDetail(); }
+  });
+  dlg.addEventListener('cancel', (e) => { e.preventDefault(); closeDetail(); });
+  dlg.addEventListener('keydown', (e) => {
+    if (!cur || cur.images.length < 2) return;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      slide = (slide + (e.key === 'ArrowRight' ? 1 : -1) + cur.images.length) % cur.images.length; renderDetail();
+    }
+  });
+
+  function update() { writeUrl(); renderStatic(); renderChips(); load(); renderDetail(); }
 
   let timer;
   $('q').addEventListener('input', (e) => {
@@ -141,5 +237,6 @@
     $('q').value = state.q;
     try { meta = await (await fetch('/api/meta')).json(); } catch {}
     update();
+    syncHash();
   })();
 })();

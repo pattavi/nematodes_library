@@ -36,6 +36,19 @@ app.get('/api/genera', (req, res) => {
   res.json({ items: db.prepare(sql).all(...args) });
 });
 
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads'), { fallthrough: false }));
+
+app.get('/api/genera/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const genus = Number.isInteger(id) ? db.prepare('SELECT * FROM genera WHERE id = ?').get(id) : null;
+  if (!genus) return res.status(404).json({ error: 'not_found' });
+  genus.images = db.prepare(`SELECT id, file, caption_th, caption_en, credit FROM images
+    WHERE genus_id = ? ORDER BY sort_order, id`).all(id);
+  genus.locations = db.prepare(`SELECT id, lat, lng, province, collected_at, note, is_sample FROM locations
+    WHERE genus_id = ? ORDER BY province, id`).all(id);
+  res.json(genus);
+});
+
 // Values that exist in the data, so the UI only offers real choices.
 app.get('/api/meta', (req, res) => {
   const feeding = db.prepare(`SELECT feeding_group AS key, COUNT(*) AS count FROM genera
@@ -44,7 +57,13 @@ app.get('/api/meta', (req, res) => {
   res.json({ feeding, letters });
 });
 
-const PORT =process.env.PORT || 3000;
+// Never leak server paths or stack traces in error responses.
+app.use((err, req, res, next) => {
+  const status = err.status || err.statusCode || 500;
+  res.status(status).json({ error: status === 404 ? 'not_found' : 'server_error' });
+});
+
+const PORT = process.env.PORT || 3000;
 if (require.main === module) {
   app.listen(PORT, () => console.log(`http://localhost:${PORT}`));
 }

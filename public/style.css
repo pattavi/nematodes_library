@@ -42,3 +42,28 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .card .meta { color: var(--muted); font-size: .85rem; }
 .tag { display: inline-block; margin-top: 6px; padding: 1px 8px; border-radius: 999px;
   background: var(--accent-bg); color: var(--accent); font-size: .8rem; }
+
+/* detail dialog */
+.detail { border: 1px solid var(--line); border-radius: 14px; padding: 0; width: min(760px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px); background: var(--card); color: var(--text); }
+.detail::backdrop { background: rgba(0,0,0,.5); }
+.d-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 14px 16px 6px; }
+.d-head h2 { margin: 0; font-style: italic; font-size: 1.4rem; }
+.d-close { border: 1px solid var(--line); background: none; border-radius: 8px; padding: 4px 12px; }
+.d-body { padding: 0 16px 16px; }
+.slides { position: relative; background: var(--accent-bg); border-radius: 10px; overflow: hidden; aspect-ratio: 4/3;
+  display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.slides img { width: 100%; height: 100%; object-fit: contain; }
+.slides .nav { position: absolute; top: 50%; transform: translateY(-50%); border: 0; border-radius: 50%;
+  width: 36px; height: 36px; background: rgba(0,0,0,.55); color: #fff; font-size: 1.2rem; }
+.slides .prev { left: 8px; } .slides .next { right: 8px; }
+.cap { margin: 6px 0 0; font-size: .9rem; color: var(--muted); }
+.dots { display: flex; justify-content: center; gap: 6px; margin: 8px 0; }
+.dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+.dots span.on { background: var(--accent); }
+dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 12px 0; }
+dl.facts dt { color: var(--muted); } dl.facts dd { margin: 0; }
+.d-body h3 { margin: 14px 0 6px; font-size: 1rem; }
+.minimap { height: 240px; border-radius: 10px; border: 1px solid var(--line); }
+ul.locs { list-style: none; padding: 0; margin: 8px 0 0; font-size: .9rem; }
+ul.locs li { padding: 2px 0; }
