@@ -49,49 +49,91 @@ app.get('/upload', (req, res) => res.sendFile(path.join(__dirname, '..', 'public
 
 app.get('/api/health', (req, res) => {
   const n = db.prepare('SELECT COUNT(*) AS n FROM genera').get().n;
-  res.json({ ok: true, genera: n });
+  const s = db.prepare('SELECT COUNT(*) AS n FROM species').get().n;
+  res.json({ ok: true, genera: n, species: s });
 });
 
-// List genera. Filters: q (genus/family/notes), feeding, letter; sort=asc|desc by genus name.
-// Shared by the list and the map: q, feeding, letter filters on genera (alias g).
+// ---- filters ----
+// Free-text search matches genus fields, and species names/authority/notes. "Meloidogyne incognita" works too.
+const likeOf = (q) => `%${q.trim().replace(/[\\%_]/g, '\\$&')}%`;
+const GENUS_MATCH = `(g.genus LIKE @q ESCAPE '\\' OR g.family LIKE @q ESCAPE '\\' OR g.notes_th LIKE @q ESCAPE '\\' OR g.notes_en LIKE @q ESCAPE '\\')`;
+const SPECIES_MATCH = `((g.genus || ' ' || s.species) LIKE @q ESCAPE '\\' OR s.authority LIKE @q ESCAPE '\\'
+  OR s.notes_th LIKE @q ESCAPE '\\' OR s.notes_en LIKE @q ESCAPE '\\')`;
+
+// Genus level (alias g): a genus matches if its own fields match or any of its species match.
 function genusFilter(query) {
   const { q = '', feeding = '', letter = '' } = query;
   const where = [];
-  const args = [];
+  const args = {};
   if (q.trim()) {
-    const like = `%${q.trim().replace(/[\\%_]/g, '\\$&')}%`;
-    where.push(`(g.genus LIKE ? ESCAPE '\\' OR g.family LIKE ? ESCAPE '\\'
-      OR g.notes_th LIKE ? ESCAPE '\\' OR g.notes_en LIKE ? ESCAPE '\\')`);
-    args.push(like, like, like, like);
+    where.push(`(${GENUS_MATCH} OR EXISTS (SELECT 1 FROM species s WHERE s.genus_id = g.id AND ${SPECIES_MATCH}))`);
+    args.q = likeOf(q);
   }
-  if (feeding) { where.push('g.feeding_group = ?'); args.push(feeding); }
-  if (/^[a-z]$/i.test(letter)) { where.push('g.genus LIKE ?'); args.push(`${letter}%`); }
+  if (feeding) { where.push('g.feeding_group = @feeding'); args.feeding = feeding; }
+  if (/^[a-z]$/i.test(letter)) { where.push('g.genus LIKE @letter'); args.letter = `${letter}%`; }
   return { where, args };
 }
 
+// Species level (aliases g and s): a species matches if its genus fields or its own fields match.
+function speciesFilter(query) {
+  const { q = '', feeding = '', letter = '' } = query;
+  const where = [];
+  const args = {};
+  if (q.trim()) { where.push(`(${GENUS_MATCH} OR ${SPECIES_MATCH})`); args.q = likeOf(q); }
+  if (feeding) { where.push('g.feeding_group = @feeding'); args.feeding = feeding; }
+  if (/^[a-z]$/i.test(letter)) { where.push('g.genus LIKE @letter'); args.letter = `${letter}%`; }
+  return { where, args };
+}
+
+const COUNTS = `
+  (SELECT COUNT(*) FROM images i JOIN species s2 ON s2.id = i.species_id WHERE s2.genus_id = g.id) AS image_count,
+  (SELECT COUNT(*) FROM locations l JOIN species s2 ON s2.id = l.species_id WHERE s2.genus_id = g.id) AS location_count,
+  (SELECT COUNT(*) FROM species s2 WHERE s2.genus_id = g.id) AS species_count,
+  (SELECT i.file FROM images i JOIN species s2 ON s2.id = i.species_id WHERE s2.genus_id = g.id
+     ORDER BY s2.species COLLATE NOCASE, i.sort_order, i.id LIMIT 1) AS cover`;
+
+// List genera. Filters: q, feeding, letter; sort=asc|desc by genus name.
 app.get('/api/genera', (req, res) => {
   const sort = req.query.sort === 'desc' ? 'DESC' : 'ASC';
   const { where, args } = genusFilter(req.query);
-  const sql = `SELECT g.id, g.genus, g.family, g.feeding_group, g.cp_value,
-      (SELECT COUNT(*) FROM images i WHERE i.genus_id = g.id) AS image_count,
-      (SELECT file FROM images i WHERE i.genus_id = g.id ORDER BY sort_order, id LIMIT 1) AS cover,
-      (SELECT COUNT(*) FROM locations l WHERE l.genus_id = g.id) AS location_count
+  const sql = `SELECT g.id, g.genus, g.family, g.feeding_group, g.cp_value, ${COUNTS}
     FROM genera g ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY g.genus COLLATE NOCASE ${sort}`;
-  res.json({ items: db.prepare(sql).all(...args) });
+  res.json({ items: db.prepare(sql).all(args) });
 });
 
 app.use('/uploads', express.static(UPLOAD_DIR, { fallthrough: false }));
 
+const speciesRows = (genusId) => db.prepare(`SELECT s.id, s.species, s.authority,
+    (SELECT COUNT(*) FROM images i WHERE i.species_id = s.id) AS image_count,
+    (SELECT COUNT(*) FROM locations l WHERE l.species_id = s.id) AS location_count,
+    (SELECT i.file FROM images i WHERE i.species_id = s.id ORDER BY i.sort_order, i.id LIMIT 1) AS cover
+  FROM species s WHERE s.genus_id = ? ORDER BY s.species COLLATE NOCASE`).all(genusId);
+
+// Genus detail: the genus, its species, and every point of all its species (for the pooled mini map).
 app.get('/api/genera/:id', (req, res) => {
   const id = Number(req.params.id);
   const genus = Number.isInteger(id) ? db.prepare('SELECT * FROM genera WHERE id = ?').get(id) : null;
   if (!genus) return res.status(404).json({ error: 'not_found' });
-  genus.images = db.prepare(`SELECT id, file, caption_th, caption_en, credit FROM images
-    WHERE genus_id = ? ORDER BY sort_order, id`).all(id);
-  genus.locations = db.prepare(`SELECT id, lat, lng, province, collected_at, note, is_sample FROM locations
-    WHERE genus_id = ? ORDER BY province, id`).all(id);
+  genus.species = speciesRows(id);
+  genus.locations = db.prepare(`SELECT l.id, l.species_id, s.species, l.lat, l.lng, l.province, l.collected_at, l.note, l.is_sample
+    FROM locations l JOIN species s ON s.id = l.species_id WHERE s.genus_id = ?
+    ORDER BY s.species COLLATE NOCASE, l.province, l.id`).all(id);
   res.json(genus);
+});
+
+// Species detail: the species, its genus, images and points.
+app.get('/api/species/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const sp = Number.isInteger(id) ? db.prepare('SELECT * FROM species WHERE id = ?').get(id) : null;
+  if (!sp) return res.status(404).json({ error: 'not_found' });
+  sp.genus = db.prepare('SELECT id, genus, family, feeding_group, cp_value, notes_th, notes_en FROM genera WHERE id = ?').get(sp.genus_id);
+  sp.images = db.prepare(`SELECT id, file, caption_th, caption_en, credit FROM images
+    WHERE species_id = ? ORDER BY sort_order, id`).all(id);
+  sp.locations = db.prepare(`SELECT id, lat, lng, province, collected_at, note, is_sample FROM locations
+    WHERE species_id = ? ORDER BY province, id`).all(id);
+  sp.siblings = speciesRows(sp.genus_id).map(({ id: sid, species }) => ({ id: sid, species }));
+  res.json(sp);
 });
 
 // ---- create / update / delete (admin only: enforced by auth.guardWrites) ----
@@ -99,28 +141,31 @@ const FEEDING_KNOWN = ['plant-parasite', 'bacterivore', 'fungivore', 'predator',
 const feedingOptions = () => [...new Set([...FEEDING_KNOWN,
   ...db.prepare(`SELECT DISTINCT feeding_group AS k FROM genera WHERE feeding_group IS NOT NULL AND feeding_group != ''`).all().map((r) => r.k)])];
 
+const textField = (b, k, max) => {
+  const v = b[k];
+  if (v == null) return null;
+  if (typeof v !== 'string' || v.length > max) throw { field: k, code: 'invalid' };
+  return v.trim() || null;
+};
+const fail = (field, code) => ({ error: { field, code } });
+const status = (e) => (e.code === 'duplicate' ? 409 : 400);
+
 // Returns { value } or { error: { field, code } }. Text is trimmed; empty optional fields become null.
 function validateGenus(body, selfId) {
   const b = body && typeof body === 'object' ? body : {};
-  const text = (k, max) => {
-    const v = b[k];
-    if (v == null) return null;
-    if (typeof v !== 'string' || v.length > max) throw { field: k, code: 'invalid' };
-    return v.trim() || null;
-  };
   try {
-    const genus = text('genus', 100);
-    if (!genus) return { error: { field: 'genus', code: 'required' } };
+    const genus = textField(b, 'genus', 100);
+    if (!genus) return fail('genus', 'required');
     const dup = db.prepare('SELECT id FROM genera WHERE genus = ? COLLATE NOCASE').get(genus);
-    if (dup && dup.id !== selfId) return { error: { field: 'genus', code: 'duplicate' } };
-    const feeding = text('feeding_group', 50);
-    if (feeding && !feedingOptions().includes(feeding)) return { error: { field: 'feeding_group', code: 'invalid' } };
+    if (dup && dup.id !== selfId) return fail('genus', 'duplicate');
+    const feeding = textField(b, 'feeding_group', 50);
+    if (feeding && !feedingOptions().includes(feeding)) return fail('feeding_group', 'invalid');
     let cp = b.cp_value;
     if (cp === '' || cp == null) cp = null;
-    else if (!Number.isInteger(cp) || cp < 1 || cp > 5) return { error: { field: 'cp_value', code: 'invalid' } };
+    else if (!Number.isInteger(cp) || cp < 1 || cp > 5) return fail('cp_value', 'invalid');
     return { value: {
-      genus, family: text('family', 100), feeding_group: feeding, cp_value: cp,
-      internal_code: text('internal_code', 50), notes_th: text('notes_th', 5000), notes_en: text('notes_en', 5000),
+      genus, family: textField(b, 'family', 100), feeding_group: feeding, cp_value: cp,
+      internal_code: textField(b, 'internal_code', 50), notes_th: textField(b, 'notes_th', 5000), notes_en: textField(b, 'notes_en', 5000),
     } };
   } catch (e) { if (e && e.field) return { error: e }; throw e; }
 }
@@ -129,7 +174,7 @@ const COLS = ['genus', 'family', 'feeding_group', 'cp_value', 'internal_code', '
 
 app.post('/api/genera', (req, res) => {
   const { value, error } = validateGenus(req.body, null);
-  if (error) return res.status(error.code === 'duplicate' ? 409 : 400).json({ error: error.code, field: error.field });
+  if (error) return res.status(status(error)).json({ error: error.code, field: error.field });
   const id = db.prepare(`INSERT INTO genera (${COLS.join(',')}) VALUES (${COLS.map((c) => '@' + c).join(',')})`)
     .run(value).lastInsertRowid;
   res.status(201).json({ id: Number(id) });
@@ -139,7 +184,7 @@ app.put('/api/genera/:id', (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || !db.prepare('SELECT 1 FROM genera WHERE id = ?').get(id)) return res.status(404).json({ error: 'not_found' });
   const { value, error } = validateGenus(req.body, id);
-  if (error) return res.status(error.code === 'duplicate' ? 409 : 400).json({ error: error.code, field: error.field });
+  if (error) return res.status(status(error)).json({ error: error.code, field: error.field });
   db.prepare(`UPDATE genera SET ${COLS.map((c) => `${c} = @${c}`).join(', ')}, updated_at = datetime('now') WHERE id = @id`)
     .run({ ...value, id });
   res.json({ id });
@@ -148,11 +193,63 @@ app.put('/api/genera/:id', (req, res) => {
 app.delete('/api/genera/:id', (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(404).json({ error: 'not_found' });
-  const files = db.prepare('SELECT file FROM images WHERE genus_id = ?').all(id).map((r) => r.file);
-  const r = db.prepare('DELETE FROM genera WHERE id = ?').run(id); // images/locations rows cascade
+  const files = db.prepare(`SELECT i.file FROM images i JOIN species s ON s.id = i.species_id WHERE s.genus_id = ?`).all(id).map((r) => r.file);
+  const r = db.prepare('DELETE FROM genera WHERE id = ?').run(id); // species, images, locations rows cascade
   if (!r.changes) return res.status(404).json({ error: 'not_found' });
   files.forEach(removeImageFiles);
   res.json({ ok: true });
+});
+
+// Species epithet: letters (any script), digits, spaces and . ' ( ) - only. "sp." is the genus-only placeholder.
+const EPITHET = /^[\p{L}\p{N} .'()\-]+$/u;
+
+function validateSpecies(body, genusId, selfId) {
+  const b = body && typeof body === 'object' ? body : {};
+  try {
+    const species = textField(b, 'species', 100);
+    if (!species) return fail('species', 'required');
+    if (!EPITHET.test(species)) return fail('species', 'invalid');
+    const dup = db.prepare('SELECT id FROM species WHERE genus_id = ? AND species = ? COLLATE NOCASE').get(genusId, species);
+    if (dup && dup.id !== selfId) return fail('species', 'duplicate');
+    return { value: {
+      species, authority: textField(b, 'authority', 200), internal_code: textField(b, 'internal_code', 50),
+      notes_th: textField(b, 'notes_th', 5000), notes_en: textField(b, 'notes_en', 5000),
+    } };
+  } catch (e) { if (e && e.field) return { error: e }; throw e; }
+}
+
+const SCOLS = ['species', 'authority', 'internal_code', 'notes_th', 'notes_en'];
+
+app.post('/api/genera/:id/species', (req, res) => {
+  const gid = Number(req.params.id);
+  if (!Number.isInteger(gid) || !db.prepare('SELECT 1 FROM genera WHERE id = ?').get(gid)) return res.status(404).json({ error: 'not_found' });
+  const { value, error } = validateSpecies(req.body, gid, null);
+  if (error) return res.status(status(error)).json({ error: error.code, field: error.field });
+  const id = db.prepare(`INSERT INTO species (genus_id, ${SCOLS.join(',')}) VALUES (@gid, ${SCOLS.map((c) => '@' + c).join(',')})`)
+    .run({ ...value, gid }).lastInsertRowid;
+  res.status(201).json({ id: Number(id) });
+});
+
+app.put('/api/species/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const cur = Number.isInteger(id) ? db.prepare('SELECT genus_id FROM species WHERE id = ?').get(id) : null;
+  if (!cur) return res.status(404).json({ error: 'not_found' });
+  const { value, error } = validateSpecies(req.body, cur.genus_id, id);
+  if (error) return res.status(status(error)).json({ error: error.code, field: error.field });
+  db.prepare(`UPDATE species SET ${SCOLS.map((c) => `${c} = @${c}`).join(', ')}, updated_at = datetime('now') WHERE id = @id`)
+    .run({ ...value, id });
+  res.json({ id });
+});
+
+app.delete('/api/species/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(404).json({ error: 'not_found' });
+  const row = db.prepare('SELECT genus_id FROM species WHERE id = ?').get(id);
+  if (!row) return res.status(404).json({ error: 'not_found' });
+  const files = db.prepare('SELECT file FROM images WHERE species_id = ?').all(id).map((r) => r.file);
+  db.prepare('DELETE FROM species WHERE id = ?').run(id); // images and locations cascade
+  files.forEach(removeImageFiles);
+  res.json({ ok: true, genus_id: row.genus_id });
 });
 
 // ---- provinces and map points ----
@@ -160,14 +257,16 @@ app.get('/api/provinces', (req, res) => {
   res.json({ items: Object.entries(PROVINCES).map(([key, th]) => ({ key, th })) });
 });
 
-// Points for the map, honouring the same filters as the list plus an optional province.
+// Points for the map, one row per point, honouring the list filters plus an optional province.
 app.get('/api/locations', (req, res) => {
-  const { where, args } = genusFilter(req.query);
+  const { where, args } = speciesFilter(req.query);
   const province = String(req.query.province || '');
-  if (province) { where.push('l.province = ?'); args.push(province); }
-  const rows = db.prepare(`SELECT l.id, l.genus_id, g.genus, g.feeding_group, l.lat, l.lng, l.province, l.is_sample
-    FROM locations l JOIN genera g ON g.id = l.genus_id
-    ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY g.genus COLLATE NOCASE, l.id`).all(...args);
+  if (province) { where.push('l.province = @province'); args.province = province; }
+  const rows = db.prepare(`SELECT l.id, l.species_id, s.species, g.id AS genus_id, g.genus, g.feeding_group,
+      l.lat, l.lng, l.province, l.is_sample
+    FROM locations l JOIN species s ON s.id = l.species_id JOIN genera g ON g.id = s.genus_id
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY g.genus COLLATE NOCASE, s.species COLLATE NOCASE, l.id`).all(args);
   res.json({ items: rows });
 });
 
@@ -196,13 +295,15 @@ function validateLocation(body) {
   return { value: { lat, lng, province: b.province, collected_at: when, note } };
 }
 
-app.post('/api/genera/:id/locations', (req, res) => {
-  const gid = Number(req.params.id);
-  if (!Number.isInteger(gid) || !db.prepare('SELECT 1 FROM genera WHERE id = ?').get(gid)) return res.status(404).json({ error: 'not_found' });
+const speciesExists = (id) => Number.isInteger(id) && !!db.prepare('SELECT 1 FROM species WHERE id = ?').get(id);
+
+app.post('/api/species/:id/locations', (req, res) => {
+  const sid = Number(req.params.id);
+  if (!speciesExists(sid)) return res.status(404).json({ error: 'not_found' });
   const { value, error } = validateLocation(req.body);
   if (error) return res.status(400).json({ error: error.code, field: error.field });
-  const id = db.prepare('INSERT INTO locations (genus_id, lat, lng, province, collected_at, note) VALUES (@gid, @lat, @lng, @province, @collected_at, @note)')
-    .run({ ...value, gid }).lastInsertRowid;
+  const id = db.prepare('INSERT INTO locations (species_id, lat, lng, province, collected_at, note) VALUES (@sid, @lat, @lng, @province, @collected_at, @note)')
+    .run({ ...value, sid }).lastInsertRowid;
   res.status(201).json({ id: Number(id) });
 });
 
@@ -238,9 +339,9 @@ function removeImageFiles(file) {
 
 const cleanText = (v, max) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
 
-app.post('/api/genera/:id/images', (req, res) => {
-  const gid = Number(req.params.id);
-  if (!Number.isInteger(gid) || !db.prepare('SELECT 1 FROM genera WHERE id = ?').get(gid)) return res.status(404).json({ error: 'not_found' });
+app.post('/api/species/:id/images', (req, res) => {
+  const sid = Number(req.params.id);
+  if (!speciesExists(sid)) return res.status(404).json({ error: 'not_found' });
   upload.array('images', 20)(req, res, async (err) => {
     if (err) {
       const tooBig = err.code === 'LIMIT_FILE_SIZE';
@@ -251,7 +352,7 @@ app.post('/api/genera/:id/images', (req, res) => {
     const list = (k) => [].concat(req.body[k] ?? []);
     const th = list('caption_th'), en = list('caption_en'), credit = cleanText(req.body.credit, 200);
     const created = [], rejected = [];
-    let order = db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM images WHERE genus_id = ?').get(gid).m;
+    let order = db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM images WHERE species_id = ?').get(sid).m;
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       try {
@@ -262,8 +363,8 @@ app.post('/api/genera/:id/images', (req, res) => {
         await sharp(f.buffer).rotate().resize({ width: 480, withoutEnlargement: true }).jpeg({ quality: 80 })
           .toFile(path.join(THUMB_DIR, name.replace(/\.[^.]+$/, '.jpg')));
         fs.writeFileSync(path.join(UPLOAD_DIR, name), f.buffer);
-        const id = db.prepare('INSERT INTO images (genus_id, file, caption_th, caption_en, credit, sort_order) VALUES (?,?,?,?,?,?)')
-          .run(gid, name, cleanText(th[i], 300), cleanText(en[i], 300), credit, ++order).lastInsertRowid;
+        const id = db.prepare('INSERT INTO images (species_id, file, caption_th, caption_en, credit, sort_order) VALUES (?,?,?,?,?,?)')
+          .run(sid, name, cleanText(th[i], 300), cleanText(en[i], 300), credit, ++order).lastInsertRowid;
         created.push({ id: Number(id), file: name });
       } catch {
         rejected.push({ name: String(f.originalname || '').slice(0, 100), error: 'invalid_image' });
@@ -305,30 +406,39 @@ function sendXlsx(res, filename, { buffer, embedded }) {
   res.send(Buffer.from(buffer));
 }
 
+// Species rows joined with their genus, in the shape export.js expects.
+const SPECIES_SELECT = `SELECT s.*, g.genus, g.family, g.feeding_group,
+    (SELECT COUNT(*) FROM images i WHERE i.species_id = s.id) AS image_count,
+    (SELECT COUNT(*) FROM locations l WHERE l.species_id = s.id) AS location_count
+  FROM species s JOIN genera g ON g.id = s.genus_id`;
+
 // scope=all (default): everything. scope=view: honours q, feeding, letter, sort and (map view) province.
 app.get('/api/export.xlsx', async (req, res, next) => {
   try {
     const view = req.query.scope === 'view';
-    const { where, args } = genusFilter(view ? req.query : {});
+    const { where, args } = speciesFilter(view ? req.query : {});
     const province = view ? String(req.query.province || '') : '';
     if (province) {
-      where.push('EXISTS (SELECT 1 FROM locations lp WHERE lp.genus_id = g.id AND lp.province = ?)');
-      args.push(province);
+      where.push('EXISTS (SELECT 1 FROM locations lp WHERE lp.species_id = s.id AND lp.province = @province)');
+      args.province = province;
     }
     const W = where.length ? 'WHERE ' + where.join(' AND ') : '';
     const dir = view && req.query.sort === 'desc' ? 'DESC' : 'ASC';
-    const locCond = province ? 'AND l.province = ?' : '';
-    const locArgs = province ? [province] : [];
-    const genera = db.prepare(`SELECT g.*,
-        (SELECT COUNT(*) FROM images i WHERE i.genus_id = g.id) AS image_count,
-        (SELECT COUNT(*) FROM locations l WHERE l.genus_id = g.id ${locCond}) AS location_count
-      FROM genera g ${W} ORDER BY g.genus COLLATE NOCASE ${dir}`).all(...locArgs, ...args);
-    const images = db.prepare(`SELECT i.*, g.genus FROM images i JOIN genera g ON g.id = i.genus_id ${W}
-      ORDER BY g.genus COLLATE NOCASE ${dir}, i.sort_order, i.id`).all(...args);
-    const locations = db.prepare(`SELECT l.*, g.genus FROM locations l JOIN genera g ON g.id = l.genus_id ${W}
-      ${W ? 'AND' : 'WHERE'} 1=1 ${province ? 'AND l.province = ?' : ''}
-      ORDER BY g.genus COLLATE NOCASE ${dir}, l.id`).all(...args, ...(province ? [province] : []));
-    const out = await exporter.buildAll({ genera, images, locations, embed: req.query.embed === '1', thumbDir: THUMB_DIR });
+    const order = `ORDER BY g.genus COLLATE NOCASE ${dir}, s.species COLLATE NOCASE`;
+    const locAnd = province ? 'AND lc.province = @province' : '';
+    const species = db.prepare(`SELECT s.*, g.genus, g.family, g.feeding_group,
+        (SELECT COUNT(*) FROM images i WHERE i.species_id = s.id) AS image_count,
+        (SELECT COUNT(*) FROM locations lc WHERE lc.species_id = s.id ${locAnd}) AS location_count
+      FROM species s JOIN genera g ON g.id = s.genus_id ${W} ${order}`).all(args);
+    const genusIds = [...new Set(species.map((s) => s.genus_id))];
+    const genera = genusIds.length ? db.prepare(`SELECT g.*, (SELECT COUNT(*) FROM species s WHERE s.genus_id = g.id) AS species_count
+      FROM genera g WHERE g.id IN (${genusIds.map(() => '?').join(',')}) ORDER BY g.genus COLLATE NOCASE ${dir}`).all(...genusIds) : [];
+    const images = db.prepare(`SELECT i.*, g.genus, s.species FROM images i JOIN species s ON s.id = i.species_id
+      JOIN genera g ON g.id = s.genus_id ${W} ${order}, i.sort_order, i.id`).all(args);
+    const locations = db.prepare(`SELECT l.*, g.genus, s.species FROM locations l JOIN species s ON s.id = l.species_id
+      JOIN genera g ON g.id = s.genus_id ${W} ${W ? 'AND' : 'WHERE'} 1=1 ${province ? 'AND l.province = @province' : ''}
+      ${order}, l.id`).all(args);
+    const out = await exporter.buildAll({ genera, species, images, locations, embed: req.query.embed === '1', thumbDir: THUMB_DIR });
     sendXlsx(res, `nematodes-${new Date().toISOString().slice(0, 10)}.xlsx`, out);
   } catch (e) { next(e); }
 });
@@ -338,10 +448,25 @@ app.get('/api/genera/:id/export.xlsx', async (req, res, next) => {
     const id = Number(req.params.id);
     const genus = Number.isInteger(id) ? db.prepare('SELECT * FROM genera WHERE id = ?').get(id) : null;
     if (!genus) return res.status(404).json({ error: 'not_found' });
-    const images = db.prepare('SELECT * FROM images WHERE genus_id = ? ORDER BY sort_order, id').all(id);
-    const locations = db.prepare('SELECT * FROM locations WHERE genus_id = ? ORDER BY province, id').all(id);
-    const out = await exporter.buildOne({ genus, images, locations, embed: req.query.embed === '1', thumbDir: THUMB_DIR });
+    const species = db.prepare(`${SPECIES_SELECT} WHERE s.genus_id = ? ORDER BY s.species COLLATE NOCASE`).all(id);
+    const images = db.prepare(`SELECT i.*, g.genus, s.species FROM images i JOIN species s ON s.id = i.species_id
+      JOIN genera g ON g.id = s.genus_id WHERE g.id = ? ORDER BY s.species COLLATE NOCASE, i.sort_order, i.id`).all(id);
+    const locations = db.prepare(`SELECT l.*, g.genus, s.species FROM locations l JOIN species s ON s.id = l.species_id
+      JOIN genera g ON g.id = s.genus_id WHERE g.id = ? ORDER BY s.species COLLATE NOCASE, l.province, l.id`).all(id);
+    const out = await exporter.buildGenus({ genus, species, images, locations, embed: req.query.embed === '1', thumbDir: THUMB_DIR });
     sendXlsx(res, `nematode-${exporter.safeName(genus.genus)}.xlsx`, out);
+  } catch (e) { next(e); }
+});
+
+app.get('/api/species/:id/export.xlsx', async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const sp = Number.isInteger(id) ? db.prepare(`${SPECIES_SELECT} WHERE s.id = ?`).get(id) : null;
+    if (!sp) return res.status(404).json({ error: 'not_found' });
+    const images = db.prepare('SELECT * FROM images WHERE species_id = ? ORDER BY sort_order, id').all(id);
+    const locations = db.prepare('SELECT * FROM locations WHERE species_id = ? ORDER BY province, id').all(id);
+    const out = await exporter.buildSpecies({ species: sp, images, locations, embed: req.query.embed === '1', thumbDir: THUMB_DIR });
+    sendXlsx(res, `nematode-${exporter.safeName(`${sp.genus}_${sp.species}`)}.xlsx`, out);
   } catch (e) { next(e); }
 });
 
