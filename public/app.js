@@ -116,8 +116,9 @@
 
   function destroyMap() { if (map) { map.remove(); map = null; } }
 
-  function renderDetail() {
+  function renderDetail(force) {
     if (!cur) return;
+    if (!force && dlg.querySelector('#gform, [data-confirm-del]')) return; // don't clobber an open form from a background refresh
     const L = t(), g = cur, n = g.images.length;
     slide = Math.min(slide, Math.max(0, n - 1));
     const im = g.images[slide];
@@ -130,7 +131,8 @@
     destroyMap();
     dlg.innerHTML = `
       <div class="d-head"><h2 id="d-title">${esc(g.genus)}</h2>
-        <button class="d-close" data-close>${esc(L.close)}</button></div>
+        <div class="d-actions">${sess.admin ? `<button data-edit>${esc(L.editGenus)}</button><button class="danger" data-del>${esc(L.deleteGenus)}</button>` : ''}
+          <button class="d-close" data-close>${esc(L.close)}</button></div></div>
       <div class="d-body">
         <div class="slides">${im ? `<img src="/uploads/${encodeURIComponent(im.file)}" alt="${esc(g.genus)}">` : esc(L.noImage)}
           ${n > 1 ? `<button class="nav prev" data-slide="-1" aria-label="${esc(L.prev)}">‹</button>
@@ -175,7 +177,7 @@
     if (!g) {
       cur = null;
       dlg.innerHTML = `<div class="d-head"><h2>${esc(t().notFound)}</h2><button class="d-close" data-close>${esc(t().close)}</button></div>`;
-    } else { cur = g; slide = 0; renderDetail(); }
+    } else { cur = g; slide = 0; renderDetail(true); }
     if (!dlg.open) dlg.showModal();
     if (map) map.invalidateSize();
   }
@@ -214,7 +216,7 @@
       const j = await (await fetch('/api/session')).json();
       sess.admin = !!j.admin; sess.enabled = !!j.login_enabled;
     } catch { sess.admin = false; }
-    renderAdminBtn();
+    renderAdminBtn(); renderAddBtn(); renderDetail();
   }
 
   function renderAdminBtn() {
@@ -256,7 +258,104 @@
     else openLogin();
   });
 
-  function update() { writeUrl(); renderStatic(); renderChips(); load(); renderDetail(); renderAdminBtn(); }
+  // ---- add / edit / delete genus (admin) ----
+  const FIELDS = ['genus', 'family', 'feeding_group', 'cp_value', 'internal_code', 'notes_th', 'notes_en'];
+
+  function renderAddBtn() {
+    const b = $('add-btn');
+    b.hidden = !sess.admin;
+    b.textContent = t().addGenus;
+  }
+
+  function openForm(g) { // g = existing genus, or null for a new one
+    const L = t(), v = g || {};
+    const val = (k) => esc(v[k] ?? '');
+    const opts = (meta.feeding_options || []).map((k) =>
+      `<option value="${esc(k)}"${v.feeding_group === k ? ' selected' : ''}>${esc(L.feeding[k] || k)}</option>`).join('');
+    const cps = [1, 2, 3, 4, 5].map((n) => `<option value="${n}"${v.cp_value === n ? ' selected' : ''}>${n}</option>`).join('');
+    destroyMap();
+    dlg.innerHTML = `<div class="d-head"><h2 id="d-title" style="font-style:normal">${esc(g ? `${L.editGenus}: ${g.genus}` : L.addGenus.replace(/^\+\s*/, ''))}</h2>
+        <button class="d-close" type="button" data-close>${esc(L.close)}</button></div>
+      <form class="gform" id="gform" data-id="${g ? g.id : ''}" novalidate>
+        <label>${esc(L.fGenus)}<input name="genus" value="${val('genus')}" maxlength="100" required></label>
+        <p class="ferr" data-err="genus"></p>
+        <div class="row">
+          <label>${esc(L.fFamily)}<input name="family" value="${val('family')}" maxlength="100"></label>
+          <label>${esc(L.fCode)}<input name="internal_code" value="${val('internal_code')}" maxlength="50"></label>
+        </div>
+        <div class="row">
+          <label>${esc(L.fFeeding)}<select name="feeding_group"><option value="">${esc(L.none)}</option>${opts}</select></label>
+          <label>${esc(L.fCp)}<select name="cp_value"><option value="">${esc(L.none)}</option>${cps}</select></label>
+        </div>
+        <label>${esc(L.fNotesTh)}<textarea name="notes_th" maxlength="5000">${esc(v.notes_th ?? '')}</textarea></label>
+        <label>${esc(L.fNotesEn)}<textarea name="notes_en" maxlength="5000">${esc(v.notes_en ?? '')}</textarea></label>
+        <p class="ferr" data-err="form" role="alert"></p>
+        <div class="btns"><button type="button" class="plain" data-cancel>${esc(L.cancel)}</button>
+          <button type="submit" class="primary">${esc(L.save)}</button></div>
+      </form>`;
+    if (!dlg.open) dlg.showModal();
+    dlg.querySelector('[name=genus]').focus();
+  }
+
+  async function refreshMeta() {
+    try { meta = await (await fetch('/api/meta')).json(); } catch {}
+    renderChips(); load();
+  }
+
+  async function submitForm(form) {
+    const L = t();
+    const id = form.dataset.id;
+    const body = {};
+    for (const k of FIELDS) {
+      const raw = form.elements[k].value;
+      body[k] = k === 'cp_value' ? (raw === '' ? null : Number(raw)) : raw;
+    }
+    dlg.querySelectorAll('.ferr').forEach((e) => { e.textContent = ''; });
+    let r, j = {};
+    try {
+      r = await fetch(id ? `/api/genera/${id}` : '/api/genera', { method: id ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      j = await r.json().catch(() => ({}));
+    } catch { dlg.querySelector('[data-err=form]').textContent = L.eSave; return; }
+    if (r.ok) {
+      const gid = id || j.id;
+      history.replaceState(null, '', location.pathname + location.search + '#G' + gid);
+      await refreshMeta();
+      return openDetail(gid);
+    }
+    if (r.status === 401) { await loadSession(); dlg.querySelector('[data-err=form]').textContent = L.eAuth; return; }
+    const msg = { required: L.eRequired, duplicate: L.eDuplicate, invalid: L.eInvalid }[j.error];
+    dlg.querySelector(`[data-err="${j.field === 'genus' ? 'genus' : 'form'}"]`).textContent = msg || L.eSave;
+  }
+
+  function confirmDelete() {
+    const L = t();
+    dlg.innerHTML = `<div class="d-head"><h2 style="font-style:normal">${esc(L.confirmDel(cur.genus))}</h2></div>
+      <div class="d-body"><p>${esc(L.confirmDelNote)}</p><p class="ferr" id="delerr" role="alert" style="color:#b3261e"></p>
+        <div class="btns"><button class="plain" data-cancel>${esc(L.cancel)}</button>
+        <button class="danger" data-confirm-del>${esc(L.deleteGenus)}</button></div></div>`;
+  }
+
+  async function doDelete() {
+    const L = t();
+    try {
+      const r = await fetch(`/api/genera/${cur.id}`, { method: 'DELETE' });
+      if (r.ok || r.status === 404) { closeDetail(); return refreshMeta(); }
+      if (r.status === 401) { await loadSession(); $('delerr').textContent = L.eAuth; return; }
+    } catch {}
+    $('delerr').textContent = L.eSave;
+  }
+
+  dlg.addEventListener('submit', (e) => { if (e.target.id === 'gform') { e.preventDefault(); submitForm(e.target); } });
+  dlg.addEventListener('click', (e) => {
+    if (e.target.closest('[data-edit]') && cur) openForm(cur);
+    else if (e.target.closest('[data-del]') && cur) confirmDelete();
+    else if (e.target.closest('[data-confirm-del]')) doDelete();
+    else if (e.target.closest('[data-cancel]')) { if (cur) renderDetail(true); else closeDetail(); }
+  });
+  $('add-btn').addEventListener('click', () => { cur = null; dseq++; openForm(null); });
+
+  function update() { writeUrl(); renderStatic(); renderChips(); load(); renderDetail(); renderAdminBtn(); renderAddBtn(); }
 
   let timer;
   $('q').addEventListener('input', (e) => {

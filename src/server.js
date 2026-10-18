@@ -55,12 +55,76 @@ app.get('/api/genera/:id', (req, res) => {
   res.json(genus);
 });
 
+// ---- create / update / delete (admin only: enforced by auth.guardWrites) ----
+const FEEDING_KNOWN = ['plant-parasite', 'bacterivore', 'fungivore', 'predator', 'omnivore', 'entomopathogen'];
+const feedingOptions = () => [...new Set([...FEEDING_KNOWN,
+  ...db.prepare(`SELECT DISTINCT feeding_group AS k FROM genera WHERE feeding_group IS NOT NULL AND feeding_group != ''`).all().map((r) => r.k)])];
+
+// Returns { value } or { error: { field, code } }. Text is trimmed; empty optional fields become null.
+function validateGenus(body, selfId) {
+  const b = body && typeof body === 'object' ? body : {};
+  const text = (k, max) => {
+    const v = b[k];
+    if (v == null) return null;
+    if (typeof v !== 'string' || v.length > max) throw { field: k, code: 'invalid' };
+    return v.trim() || null;
+  };
+  try {
+    const genus = text('genus', 100);
+    if (!genus) return { error: { field: 'genus', code: 'required' } };
+    const dup = db.prepare('SELECT id FROM genera WHERE genus = ? COLLATE NOCASE').get(genus);
+    if (dup && dup.id !== selfId) return { error: { field: 'genus', code: 'duplicate' } };
+    const feeding = text('feeding_group', 50);
+    if (feeding && !feedingOptions().includes(feeding)) return { error: { field: 'feeding_group', code: 'invalid' } };
+    let cp = b.cp_value;
+    if (cp === '' || cp == null) cp = null;
+    else if (!Number.isInteger(cp) || cp < 1 || cp > 5) return { error: { field: 'cp_value', code: 'invalid' } };
+    return { value: {
+      genus, family: text('family', 100), feeding_group: feeding, cp_value: cp,
+      internal_code: text('internal_code', 50), notes_th: text('notes_th', 5000), notes_en: text('notes_en', 5000),
+    } };
+  } catch (e) { if (e && e.field) return { error: e }; throw e; }
+}
+
+const COLS = ['genus', 'family', 'feeding_group', 'cp_value', 'internal_code', 'notes_th', 'notes_en'];
+
+app.post('/api/genera', (req, res) => {
+  const { value, error } = validateGenus(req.body, null);
+  if (error) return res.status(error.code === 'duplicate' ? 409 : 400).json({ error: error.code, field: error.field });
+  const id = db.prepare(`INSERT INTO genera (${COLS.join(',')}) VALUES (${COLS.map((c) => '@' + c).join(',')})`)
+    .run(value).lastInsertRowid;
+  res.status(201).json({ id: Number(id) });
+});
+
+app.put('/api/genera/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || !db.prepare('SELECT 1 FROM genera WHERE id = ?').get(id)) return res.status(404).json({ error: 'not_found' });
+  const { value, error } = validateGenus(req.body, id);
+  if (error) return res.status(error.code === 'duplicate' ? 409 : 400).json({ error: error.code, field: error.field });
+  db.prepare(`UPDATE genera SET ${COLS.map((c) => `${c} = @${c}`).join(', ')}, updated_at = datetime('now') WHERE id = @id`)
+    .run({ ...value, id });
+  res.json({ id });
+});
+
+app.delete('/api/genera/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(404).json({ error: 'not_found' });
+  const files = db.prepare('SELECT file FROM images WHERE genus_id = ?').all(id).map((r) => r.file);
+  const r = db.prepare('DELETE FROM genera WHERE id = ?').run(id); // images/locations rows cascade
+  if (!r.changes) return res.status(404).json({ error: 'not_found' });
+  for (const f of files) {
+    const p = path.join(__dirname, '..', 'uploads', path.basename(f));
+    try { require('fs').unlinkSync(p); } catch {}
+  }
+  res.json({ ok: true });
+});
+
 // Values that exist in the data, so the UI only offers real choices.
 app.get('/api/meta', (req, res) => {
   const feeding = db.prepare(`SELECT feeding_group AS key, COUNT(*) AS count FROM genera
     WHERE feeding_group IS NOT NULL AND feeding_group != '' GROUP BY feeding_group ORDER BY feeding_group`).all();
   const letters = db.prepare(`SELECT DISTINCT UPPER(SUBSTR(genus,1,1)) AS l FROM genera ORDER BY l`).all().map((r) => r.l);
-  res.json({ feeding, letters });
+  res.json({ feeding, letters, feeding_options: feedingOptions() });
 });
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
@@ -68,7 +132,7 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
 // Never leak server paths or stack traces in error responses.
 app.use((err, req, res, next) => {
   const status = err.status || err.statusCode || 500;
-  res.status(status).json({ error: status === 404 ? 'not_found' : 'server_error' });
+  res.status(status).json({ error: status === 404 ? 'not_found' : status < 500 ? 'bad_request' : 'server_error' });
 });
 
 const PORT = process.env.PORT || 3000;

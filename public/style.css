@@ -78,3 +78,21 @@ ul.locs li { padding: 2px 0; }
 .login .primary { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 9px; }
 .login .err { color: #b3261e; margin: 0; min-height: 1.3em; }
 .login .info { padding: 0 16px 16px; margin: 0; }
+
+/* admin edit */
+.addbtn { margin-left: auto; border: 0; background: var(--accent); color: #fff; border-radius: 8px; padding: 5px 12px; }
+.d-actions { display: flex; gap: 6px; }
+.d-actions button { border: 1px solid var(--line); background: none; border-radius: 8px; padding: 4px 12px; }
+.d-actions .danger { color: #b3261e; border-color: #b3261e; }
+form.gform { display: grid; gap: 10px; padding: 4px 16px 16px; }
+form.gform label { display: grid; gap: 3px; font-size: .9rem; color: var(--muted); }
+form.gform input, form.gform select, form.gform textarea { padding: 8px 10px; font: inherit; color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+form.gform textarea { min-height: 80px; resize: vertical; }
+form.gform .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+form.gform .ferr { color: #b3261e; margin: 0; font-size: .85rem; min-height: 1.1em; }
+.btns { display: flex; gap: 8px; justify-content: flex-end; }
+.btns .primary { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 8px 16px; }
+.btns .danger { background: #b3261e; color: #fff; border: 0; border-radius: 8px; padding: 8px 16px; }
+.btns .plain { border: 1px solid var(--line); background: none; border-radius: 8px; padding: 8px 16px; }
+@media (max-width: 480px) { form.gform .row { grid-template-columns: 1fr; } }
