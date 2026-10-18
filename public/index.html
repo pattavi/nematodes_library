@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nematode Library</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1 id="title"></h1>
+    <p id="subtitle" class="muted"></p>
+  </div>
+  <div class="lang" role="group" aria-label="Language">
+    <button data-lang="th">ไทย</button>
+    <button data-lang="en">EN</button>
+  </div>
+</header>
+
+<main>
+  <div class="toolbar">
+    <div class="searchbox">
+      <input id="q" type="search" autocomplete="off">
+      <button id="qclear" class="x" hidden>×</button>
+    </div>
+    <div class="sort" role="group">
+      <button data-sort="asc"></button>
+      <button data-sort="desc"></button>
+    </div>
+  </div>
+  <div id="chips" class="chips"></div>
+  <nav id="letters" class="letters"></nav>
+  <div class="status"><span id="count"></span> <button id="clear" class="link" hidden></button></div>
+  <div id="grid" class="grid"></div>
+  <p id="msg" class="muted" hidden></p>
+</main>
+
+<script src="/i18n.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
