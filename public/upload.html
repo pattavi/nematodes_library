@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Upload</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1 id="title"></h1>
+    <p><a id="back" href="/"></a></p>
+  </div>
+  <div class="right">
+    <button id="admin-btn" class="adminbtn" hidden></button>
+    <div class="lang" role="group" aria-label="Language">
+      <button data-lang="th">ไทย</button>
+      <button data-lang="en">EN</button>
+    </div>
+  </div>
+</header>
+
+<main id="root"></main>
+
+<dialog id="picker" class="detail"></dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="/i18n.js"></script>
+<script src="/upload.js"></script>
+</body>
+</html>

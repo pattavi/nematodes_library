@@ -2,7 +2,14 @@
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  const state = { lang: 'th', q: '', feeding: '', letter: '', sort: 'asc' };
+  const state = { lang: 'th', q: '', feeding: '', letter: '', sort: 'asc', view: 'list', province: '' };
+  const PALETTE = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#0aa5c9', '#d6249f', '#9a6324', '#808000', '#008080', '#800000', '#000075'];
+  const colorOf = (id) => PALETTE[id % PALETTE.length];
+  let provinces = {};      // key -> Thai name (all 77)
+  let provUse = [];        // provinces that have points: [{key, count}]
+  let mapData = [];        // current map points
+  let msel = null;         // genus id selected on the map
+  let bigMap = null, bigLayer = null;
   let meta = { feeding: [], letters: [] };
   let seq = 0;
 
@@ -17,6 +24,8 @@
     state.feeding = p.get('feeding') || '';
     state.letter = (p.get('letter') || '').toUpperCase().slice(0, 1);
     state.sort = p.get('sort') === 'desc' ? 'desc' : 'asc';
+    state.view = p.get('view') === 'map' ? 'map' : 'list';
+    state.province = state.view === 'map' ? p.get('province') || '' : '';
   }
 
   function writeUrl() {
@@ -26,11 +35,15 @@
     if (state.letter) p.set('letter', state.letter);
     if (state.sort !== 'asc') p.set('sort', state.sort);
     if (state.lang === 'en') p.set('lang', 'en');
+    if (state.view === 'map') { p.set('view', 'map'); if (state.province) p.set('province', state.province); }
     const qs = p.toString();
     history.replaceState(null, "", (qs ? `?${qs}` : location.pathname) + location.hash);
   }
 
-  const activeFilters = () => (state.q ? 1 : 0) + (state.feeding ? 1 : 0) + (state.letter ? 1 : 0);
+  // The province filter exists only in map view, so it only counts there.
+  const activeFilters = () => (state.q ? 1 : 0) + (state.feeding ? 1 : 0) + (state.letter ? 1 : 0)
+    + (state.view === 'map' && state.province ? 1 : 0);
+  const provLabel = (k) => (state.lang === 'th' ? provinces[k] || k : k);
 
   function renderStatic() {
     const L = t();
@@ -44,6 +57,22 @@
     const [asc, desc] = document.querySelectorAll('[data-sort]');
     asc.textContent = L.sortAsc; desc.textContent = L.sortDesc;
     document.querySelectorAll('[data-sort]').forEach((b) => b.classList.toggle('on', b.dataset.sort === state.sort));
+    $('upload-btn').textContent = L.uploadBtn;
+    $('upload-btn').href = state.lang === 'en' ? '/upload?lang=en' : '/upload';
+    document.querySelectorAll('[data-view]').forEach((b) => {
+      b.textContent = b.dataset.view === 'map' ? L.viewMap : L.viewList;
+      b.classList.toggle('on', b.dataset.view === state.view);
+    });
+    const isMap = state.view === 'map';
+    $('grid').hidden = isMap; $('mapview').hidden = !isMap; $('prov').hidden = !isMap;
+    renderProvSelect();
+  }
+
+  function renderProvSelect() {
+    const L = t();
+    $('prov').setAttribute('aria-label', L.province);
+    $('prov').innerHTML = `<option value="">${esc(L.allProv)}</option>` +
+      provUse.map((p) => `<option value="${esc(p.key)}"${state.province === p.key ? ' selected' : ''}>${esc(provLabel(p.key))} (${p.count})</option>`).join('');
   }
 
   function renderChips() {
@@ -76,7 +105,7 @@
       const l = g.genus[0].toUpperCase();
       if (l !== last) { html += `<h2 class="letter-h">${esc(l)}</h2>`; last = l; }
       html += `<a class="card" href="#G${g.id}" style="text-decoration:none;color:inherit">
-        <div class="thumb">${esc(L.noImage)}</div>
+        <div class="thumb">${g.cover ? `<img loading="lazy" src="/uploads/thumbs/${encodeURIComponent(g.cover.replace(/\.[^.]+$/, '.jpg'))}" alt="">` : esc(L.noImage)}</div>
         <div class="body">
           <h3>${esc(g.genus)}</h3>
           <div class="meta">${g.family ? `${esc(L.family)}: ${esc(g.family)}` : ''}</div>
@@ -87,12 +116,89 @@
     $('grid').innerHTML = html;
   }
 
-  async function load() {
-    const my = ++seq;
+  const filterParams = () => {
     const p = new URLSearchParams();
     if (state.q) p.set('q', state.q);
     if (state.feeding) p.set('feeding', state.feeding);
     if (state.letter) p.set('letter', state.letter);
+    return p;
+  };
+
+  async function refreshProvinces() {
+    try {
+      const j = await (await fetch('/api/locations/provinces')).json();
+      provUse = j.items.map(({ key, count }) => ({ key, count }));
+      j.items.forEach((x) => { provinces[x.key] = x.th; });
+    } catch {}
+    if (state.province && !provUse.some((p) => p.key === state.province)) state.province = '';
+    renderProvSelect();
+  }
+
+  async function loadMap() {
+    const my = ++seq;
+    const p = filterParams();
+    if (state.province) p.set('province', state.province);
+    try {
+      const r = await fetch(`/api/locations?${p}`);
+      if (!r.ok) throw new Error(r.status);
+      const { items } = await r.json();
+      if (my !== seq) return;
+      mapData = items;
+      renderMapView();
+    } catch {
+      if (my !== seq) return;
+      $('maplist').textContent = t().error;
+    }
+  }
+
+  function renderMapView() {
+    const L = t();
+    const groups = new Map();
+    for (const pt of mapData) {
+      if (!groups.has(pt.genus_id)) groups.set(pt.genus_id, { id: pt.genus_id, genus: pt.genus, pts: [] });
+      groups.get(pt.genus_id).pts.push(pt);
+    }
+    if (msel != null && !groups.has(msel)) msel = null;
+    $('count').textContent = L.mapCount(groups.size, mapData.length);
+    $('clear').hidden = activeFilters() === 0;
+    $('clear').textContent = `${L.clear} (${activeFilters()})`;
+    $('qclear').hidden = !state.q;
+
+    const list = [...groups.values()];
+    $('maplist').innerHTML = (msel != null ? `<button class="link" data-mg-all>${esc(L.showAll)}</button>` : '') +
+      (list.length ? list.map((g) => `<button class="mg${msel === g.id ? ' on' : ''}" data-mg="${g.id}">
+        <span class="sw" style="background:${colorOf(g.id)}"></span><i>${esc(g.genus)}</i><span class="muted">${g.pts.length} ${esc(L.pts)}</span></button>`).join('')
+        : `<p class="muted">${esc(L.noPoints)}</p>`);
+
+    const el = $('bigmap');
+    if (!window.L) { el.textContent = L.mapFail; return; }
+    if (!bigMap) {
+      bigMap = window.L.map(el);
+      window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap contributors' }).addTo(bigMap);
+      bigLayer = window.L.layerGroup().addTo(bigMap);
+    }
+    bigMap.invalidateSize();
+    bigLayer.clearLayers();
+    const shown = mapData.filter((pt) => msel == null || pt.genus_id === msel);
+    const bounds = [];
+    for (const pt of shown) {
+      const m = window.L.circleMarker([pt.lat, pt.lng], { radius: 8, color: '#fff', weight: 2, fillColor: colorOf(pt.genus_id), fillOpacity: 0.95 }).addTo(bigLayer);
+      const tip = document.createElement('span');
+      tip.textContent = msel != null ? provLabel(pt.province)
+        : `${pt.genus} — ${provLabel(pt.province)} (${pt.lat.toFixed(4)}, ${pt.lng.toFixed(4)})`;
+      m.bindTooltip(tip, { permanent: msel != null, direction: 'top' });
+      m.on('click', () => { location.hash = `#G${pt.genus_id}`; });
+      bounds.push([pt.lat, pt.lng]);
+    }
+    if (bounds.length === 1) bigMap.setView(bounds[0], 9);
+    else if (bounds.length) bigMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 10 });
+    else bigMap.fitBounds([[5.6, 97.3], [20.5, 105.7]]);
+  }
+
+  async function load() {
+    if (state.view === 'map') return loadMap();
+    const my = ++seq;
+    const p = filterParams();
     p.set('sort', state.sort);
     try {
       const r = await fetch(`/api/genera?${p}`);
@@ -113,6 +219,22 @@
   const dlg = $('detail');
   let cur = null, slide = 0, map = null, dseq = 0;
   const pick = (g, base) => g[`${base}_${state.lang}`] || g[`${base}_${state.lang === 'th' ? 'en' : 'th'}`] || '';
+
+  let ptEdit = null; // null | { id: number|null, ...fields } while the point form is open
+
+  function ptFormHtml() {
+    const L = t(), v = ptEdit;
+    const opts = Object.keys(provinces).sort((a, b) => provLabel(a).localeCompare(provLabel(b), state.lang)).map((k) => [k])
+      .map(([k]) => `<option value="${esc(k)}"${v.province === k ? ' selected' : ''}>${esc(provLabel(k))}</option>`).join('');
+    return `<form id="ptform" class="gform ptform" novalidate>
+      <div class="row"><label>${esc(L.province)}<select name="province"><option value="">${esc(L.chooseProv)}</option>${opts}</select></label>
+        <label>${esc(L.dateLbl)}<input name="collected_at" type="date" value="${esc(v.collected_at || '')}"></label></div>
+      <div class="row"><label>${esc(L.lat)}<input name="lat" inputmode="decimal" value="${esc(v.lat ?? '')}"></label>
+        <label>${esc(L.lng)}<input name="lng" inputmode="decimal" value="${esc(v.lng ?? '')}"></label></div>
+      <label>${esc(L.noteLbl)}<input name="note" maxlength="500" value="${esc(v.note || '')}"></label>
+      <p class="ferr" id="pterr" role="alert"></p>
+      <div class="btns"><button type="button" class="plain" data-ptcancel>${esc(L.cancel)}</button><button type="submit" class="primary">${esc(L.save)}</button></div></form>`;
+  }
 
   function destroyMap() { if (map) { map.remove(); map = null; } }
 
@@ -138,13 +260,16 @@
           ${n > 1 ? `<button class="nav prev" data-slide="-1" aria-label="${esc(L.prev)}">‹</button>
                      <button class="nav next" data-slide="1" aria-label="${esc(L.next)}">›</button>` : ''}</div>
         ${n > 1 ? `<div class="dots">${g.images.map((_, i) => `<span class="${i === slide ? 'on' : ''}"></span>`).join('')}</div>` : ''}
+        ${sess.admin && im ? `<button class="plain mini" data-delimg="${im.id}">${esc(L.delImg)}</button>` : ''}
         ${cap || (im && im.credit) ? `<p class="cap">${esc(cap)}${im.credit ? ` ${cap ? '· ' : ''}${esc(L.credit)}: ${esc(im.credit)}` : ''}</p>` : ''}
         <dl class="facts">${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
         ${note ? `<h3>${esc(L.notes)}</h3><p>${esc(note)}</p>` : ''}
         <h3>${esc(L.locations)} (${g.locations.length})</h3>
         ${g.locations.length ? `<div id="minimap" class="minimap"></div>
-          <ul class="locs">${g.locations.map((p) => `<li>${esc(p.province)} · ${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}${p.is_sample ? ` <span class="muted">(${esc(L.sample)})</span>` : ''}</li>`).join('')}</ul>`
+          <ul class="locs">${g.locations.map((p) => `<li>${esc(provLabel(p.province))} · ${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}${p.collected_at ? ` · ${esc(p.collected_at)}` : ''}${p.is_sample ? ` <span class="muted">(${esc(L.sample)})</span>` : ''}
+            ${sess.admin ? `<button class="mini" data-ept="${p.id}" aria-label="${esc(L.editGenus)}">✎</button><button class="mini" data-dpt="${p.id}" aria-label="${esc(L.deleteGenus)}">×</button>` : ''}</li>`).join('')}</ul>`
           : `<p class="muted">${esc(L.noLocations)}</p>`}
+        ${sess.admin ? (ptEdit ? ptFormHtml() : `<button class="plain" data-addpt>${esc(L.addPt)}</button>`) : ''}
       </div>`;
     if (g.locations.length) drawMiniMap(g.locations);
   }
@@ -299,6 +424,7 @@
 
   async function refreshMeta() {
     try { meta = await (await fetch('/api/meta')).json(); } catch {}
+    await refreshProvinces();
     renderChips(); load();
   }
 
@@ -355,6 +481,66 @@
   });
   $('add-btn').addEventListener('click', () => { cur = null; dseq++; openForm(null); });
 
+  // ---- map controls, point + image editing ----
+  async function reloadCurrent() {
+    if (!cur) return;
+    try {
+      const r = await fetch(`/api/genera/${cur.id}`);
+      if (r.ok) { cur = await r.json(); ptEdit = null; renderDetail(true); }
+    } catch {}
+    refreshMeta(); refreshProvinces();
+  }
+
+  const authFail = async () => { await loadSession(); };
+
+  $('prov').addEventListener('change', (e) => { state.province = e.target.value; msel = null; update(); });
+  $('maplist').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.hasAttribute('data-mg-all')) msel = null;
+    else if (b.dataset.mg) msel = msel === Number(b.dataset.mg) ? null : Number(b.dataset.mg);
+    renderMapView();
+  });
+
+  dlg.addEventListener('click', async (e) => {
+    const L = t();
+    const b = e.target.closest('button');
+    if (!b || !cur) return;
+    if (b.hasAttribute('data-addpt')) { ptEdit = { id: null }; renderDetail(true); }
+    else if (b.dataset.ept) {
+      const p = cur.locations.find((x) => String(x.id) === b.dataset.ept);
+      if (p) { ptEdit = { ...p }; renderDetail(true); }
+    } else if (b.hasAttribute('data-ptcancel')) { ptEdit = null; renderDetail(true); }
+    else if (b.dataset.dpt) {
+      if (!confirm(L.confirmPt)) return;
+      const r = await fetch(`/api/locations/${b.dataset.dpt}`, { method: 'DELETE' });
+      if (r.status === 401) return authFail();
+      reloadCurrent();
+    } else if (b.dataset.delimg) {
+      if (!confirm(L.confirmImg)) return;
+      const r = await fetch(`/api/images/${b.dataset.delimg}`, { method: 'DELETE' });
+      if (r.status === 401) return authFail();
+      reloadCurrent();
+    }
+  });
+
+  dlg.addEventListener('submit', async (e) => {
+    if (e.target.id !== 'ptform') return;
+    e.preventDefault();
+    const L = t(), f = e.target.elements;
+    const num = (v) => (/^\s*-?\d+(\.\d+)?\s*$/.test(v) ? Number(v) : NaN);
+    const body = { province: f.province.value, lat: num(f.lat.value), lng: num(f.lng.value), collected_at: f.collected_at.value, note: f.note.value };
+    const err = $('pterr');
+    if (!body.province) { err.textContent = L.ePointIncomplete('').replace(/^[^:：]+[:：]s*/, ''); return; }
+    if (Number.isNaN(body.lat) || Number.isNaN(body.lng)) { err.textContent = L.ePointRange('').replace(/^[^:：]+[:：]s*/, ''); return; }
+    const id = ptEdit && ptEdit.id;
+    const r = await fetch(id ? `/api/locations/${id}` : `/api/genera/${cur.id}/locations`, {
+      method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (r.status === 401) { await authFail(); err.textContent = L.eAuth; return; }
+    if (!r.ok) { err.textContent = L.ePointRange('').replace(/^[^:：]+[:：]s*/, ''); return; }
+    reloadCurrent();
+  });
+
   function update() { writeUrl(); renderStatic(); renderChips(); load(); renderDetail(); renderAdminBtn(); renderAddBtn(); }
 
   let timer;
@@ -368,7 +554,7 @@
   });
   $('qclear').addEventListener('click', () => { state.q = ''; $('q').value = ''; $('q').focus(); update(); });
   $('clear').addEventListener('click', () => {
-    state.q = state.feeding = state.letter = ''; $('q').value = ''; update();
+    state.q = state.feeding = state.letter = state.province = ''; msel = null; $('q').value = ''; update();
   });
   document.addEventListener('click', (e) => {
     const b = e.target.closest('button');
@@ -378,6 +564,7 @@
       try { localStorage.setItem('lang', state.lang); } catch {}
       update();
     } else if (b.dataset.sort) { state.sort = b.dataset.sort; update(); }
+    else if (b.dataset.view) { state.view = b.dataset.view; update(); }
     else if (b.classList.contains('chip')) { state.feeding = b.dataset.feeding; update(); }
     else if (b.dataset.letter) { state.letter = state.letter === b.dataset.letter ? '' : b.dataset.letter; update(); }
   });
@@ -386,6 +573,8 @@
     readUrl();
     $('q').value = state.q;
     try { meta = await (await fetch('/api/meta')).json(); } catch {}
+    try { (await (await fetch('/api/provinces')).json()).items.forEach((p) => { provinces[p.key] = p.th; }); } catch {}
+    await refreshProvinces();
     update();
     loadSession();
     syncHash();

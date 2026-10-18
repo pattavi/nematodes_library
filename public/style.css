@@ -96,3 +96,47 @@ form.gform .ferr { color: #b3261e; margin: 0; font-size: .85rem; min-height: 1.1
 .btns .danger { background: #b3261e; color: #fff; border: 0; border-radius: 8px; padding: 8px 16px; }
 .btns .plain { border: 1px solid var(--line); background: none; border-radius: 8px; padding: 8px 16px; }
 @media (max-width: 480px) { form.gform .row { grid-template-columns: 1fr; } }
+
+/* upload page */
+.upcard { max-width: 760px; margin: 12px auto; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+.upcard.gform { display: grid; gap: 10px; }
+.upcard h3 { margin: 10px 0 0; font-size: 1rem; }
+.upcard .gform { padding: 0; }
+.upcard label { display: grid; gap: 3px; font-size: .9rem; color: var(--muted); }
+.upcard input, .upcard select, .upcard textarea { padding: 8px 10px; font: inherit; color: var(--text); border: 1px solid var(--line); border-radius: 8px; background: var(--bg); width: 100%; }
+.upcard .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.newg { display: grid; gap: 10px; padding: 10px; border: 1px dashed var(--line); border-radius: 10px; }
+.drop { border: 2px dashed var(--line); border-radius: 12px; padding: 22px 12px; text-align: center; cursor: pointer; }
+.drop:hover, .drop.over, .drop:focus-visible { border-color: var(--accent); background: var(--accent-bg); outline: none; }
+.frow { display: grid; grid-template-columns: 72px 1fr auto; gap: 10px; align-items: start; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.frow img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; }
+.fcols { display: grid; gap: 6px; min-width: 0; }
+.fname { overflow-wrap: anywhere; font-size: .9rem; }
+.prow { display: grid; grid-template-columns: 1.4fr 1fr 1fr auto; gap: 8px; align-items: end; margin-bottom: 8px; }
+.pbtns { display: flex; gap: 6px; }
+.plain, .btnlink { border: 1px solid var(--line); background: none; color: var(--text); border-radius: 8px; padding: 8px 14px; cursor: pointer; text-decoration: none; display: inline-block; font: inherit; }
+.prog { position: relative; height: 22px; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.prog #bar { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.prog #ptxt { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: .8rem; mix-blend-mode: difference; color: #fff; }
+.ferr { color: #b3261e; margin: 0; font-size: .85rem; min-height: 1.1em; }
+@media (max-width: 560px) { .prow { grid-template-columns: 1fr 1fr; } .prow label:first-child { grid-column: 1 / -1; } .upcard .row { grid-template-columns: 1fr; } }
+.uploadbtn { text-decoration: none; color: var(--text); display: inline-block; }
+.card .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* map view */
+.viewbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+.viewbar select { padding: 6px 10px; font: inherit; color: var(--text); border: 1px solid var(--line); border-radius: 8px; background: var(--card); max-width: 100%; }
+.mapview { display: grid; grid-template-columns: 1fr 260px; gap: 12px; }
+.bigmap { height: 560px; border: 1px solid var(--line); border-radius: 12px; background: var(--accent-bg); z-index: 0; }
+.maplist { display: flex; flex-direction: column; gap: 4px; max-height: 560px; overflow: auto; }
+.mg { display: flex; align-items: center; gap: 8px; text-align: left; border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 6px 10px; }
+.mg.on { border-color: var(--accent); background: var(--accent-bg); }
+.mg i { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.mg .muted { font-size: .8rem; margin: 0; }
+.sw { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.mini { border: 1px solid var(--line); background: none; border-radius: 6px; padding: 0 7px; margin-left: 6px; font-size: .85rem; }
+.ptform { padding: 8px 0 0; }
+@media (max-width: 700px) { .mapview { grid-template-columns: 1fr; } .bigmap { height: 380px; } .maplist { max-height: 220px; } }
+.d-head { flex-wrap: wrap; }
+.d-head h2 { min-width: 0; overflow-wrap: anywhere; }
+.d-actions { flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }

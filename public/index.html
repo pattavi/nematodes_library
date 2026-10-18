@@ -14,6 +14,7 @@
     <p id="subtitle" class="muted"></p>
   </div>
   <div class="right">
+  <a id="upload-btn" class="adminbtn uploadbtn" href="/upload"></a>
   <button id="admin-btn" class="adminbtn"></button>
   <div class="lang" role="group" aria-label="Language">
     <button data-lang="th">ไทย</button>
@@ -33,11 +34,22 @@
       <button data-sort="desc"></button>
     </div>
   </div>
+  <div class="viewbar">
+    <div class="sort" role="group">
+      <button data-view="list"></button>
+      <button data-view="map"></button>
+    </div>
+    <select id="prov" hidden aria-label="Province"></select>
+  </div>
   <div id="chips" class="chips"></div>
   <nav id="letters" class="letters"></nav>
   <div class="status"><span id="count"></span> <button id="clear" class="link" hidden></button>
     <button id="add-btn" class="addbtn" hidden></button></div>
   <div id="grid" class="grid"></div>
+  <div id="mapview" class="mapview" hidden>
+    <div id="bigmap" class="bigmap"></div>
+    <aside id="maplist" class="maplist"></aside>
+  </div>
   <p id="msg" class="muted" hidden></p>
 </main>
 
