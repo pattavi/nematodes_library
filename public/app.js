@@ -183,7 +183,7 @@
     if (!window.L) { el.textContent = L.mapFail; return; }
     if (!bigMap) {
       bigMap = window.L.map(el);
-      window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap contributors' }).addTo(bigMap);
+      window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, referrerPolicy: 'strict-origin-when-cross-origin', attribution: '&copy; OpenStreetMap contributors' }).addTo(bigMap);
       bigLayer = window.L.layerGroup().addTo(bigMap);
     }
     bigMap.invalidateSize();
@@ -335,7 +335,7 @@
     if (!window.L) { el.textContent = t().mapFail; return; }
     map = window.L.map(el, { scrollWheelZoom: false });
     window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 18, attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 18, referrerPolicy: 'strict-origin-when-cross-origin', attribution: '&copy; OpenStreetMap contributors',
     }).addTo(map);
     const pts = locs.map((p) => {
       const m = window.L.circleMarker([p.lat, p.lng], { radius: 7, color: '#fff', weight: 2, fillColor: color(p), fillOpacity: 1 }).addTo(map);

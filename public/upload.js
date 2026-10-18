@@ -307,7 +307,7 @@
     dlg.showModal();
     if (!window.L) { $('pmap').textContent = L.mapFail; return; }
     pmap = window.L.map('pmap').setView([13.2, 101], 5); // centred on Thailand; user can zoom
-    window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap contributors' }).addTo(pmap);
+    window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, referrerPolicy: 'strict-origin-when-cross-origin', attribution: '&copy; OpenStreetMap contributors' }).addTo(pmap);
     let marker = null;
     const cur = S.points.find((p) => String(p.id) === String(pid));
     if (cur && !Number.isNaN(parseNum(cur.lat)) && !Number.isNaN(parseNum(cur.lng))) {

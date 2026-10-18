@@ -30,7 +30,7 @@ app.use((req, res, next) => {
     'Content-Security-Policy': CSP,
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
-    'Referrer-Policy': 'same-origin',
+    'Referrer-Policy': 'strict-origin-when-cross-origin', // OSM tile servers require a Referer
   });
   next();
 });
