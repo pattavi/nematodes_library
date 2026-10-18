@@ -266,6 +266,60 @@ app.delete('/api/images/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Excel export (public, read-only) ----
+const exporter = require('./export');
+const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+function sendXlsx(res, filename, { buffer, embedded }) {
+  res.set({
+    'Content-Type': XLSX_TYPE,
+    'Content-Disposition': `attachment; filename="${filename}"`,
+    'X-Embedded-Images': String(embedded),
+    'Cache-Control': 'no-store',
+  });
+  res.send(Buffer.from(buffer));
+}
+
+// scope=all (default): everything. scope=view: honours q, feeding, letter, sort and (map view) province.
+app.get('/api/export.xlsx', async (req, res, next) => {
+  try {
+    const view = req.query.scope === 'view';
+    const { where, args } = genusFilter(view ? req.query : {});
+    const province = view ? String(req.query.province || '') : '';
+    if (province) {
+      where.push('EXISTS (SELECT 1 FROM locations lp WHERE lp.genus_id = g.id AND lp.province = ?)');
+      args.push(province);
+    }
+    const W = where.length ? 'WHERE ' + where.join(' AND ') : '';
+    const dir = view && req.query.sort === 'desc' ? 'DESC' : 'ASC';
+    const locCond = province ? 'AND l.province = ?' : '';
+    const locArgs = province ? [province] : [];
+    const genera = db.prepare(`SELECT g.*,
+        (SELECT COUNT(*) FROM images i WHERE i.genus_id = g.id) AS image_count,
+        (SELECT COUNT(*) FROM locations l WHERE l.genus_id = g.id ${locCond}) AS location_count
+      FROM genera g ${W} ORDER BY g.genus COLLATE NOCASE ${dir}`).all(...locArgs, ...args);
+    const images = db.prepare(`SELECT i.*, g.genus FROM images i JOIN genera g ON g.id = i.genus_id ${W}
+      ORDER BY g.genus COLLATE NOCASE ${dir}, i.sort_order, i.id`).all(...args);
+    const locations = db.prepare(`SELECT l.*, g.genus FROM locations l JOIN genera g ON g.id = l.genus_id ${W}
+      ${W ? 'AND' : 'WHERE'} 1=1 ${province ? 'AND l.province = ?' : ''}
+      ORDER BY g.genus COLLATE NOCASE ${dir}, l.id`).all(...args, ...(province ? [province] : []));
+    const out = await exporter.buildAll({ genera, images, locations, embed: req.query.embed === '1', thumbDir: THUMB_DIR });
+    sendXlsx(res, `nematodes-${new Date().toISOString().slice(0, 10)}.xlsx`, out);
+  } catch (e) { next(e); }
+});
+
+app.get('/api/genera/:id/export.xlsx', async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const genus = Number.isInteger(id) ? db.prepare('SELECT * FROM genera WHERE id = ?').get(id) : null;
+    if (!genus) return res.status(404).json({ error: 'not_found' });
+    const images = db.prepare('SELECT * FROM images WHERE genus_id = ? ORDER BY sort_order, id').all(id);
+    const locations = db.prepare('SELECT * FROM locations WHERE genus_id = ? ORDER BY province, id').all(id);
+    const out = await exporter.buildOne({ genus, images, locations, embed: req.query.embed === '1', thumbDir: THUMB_DIR });
+    sendXlsx(res, `nematode-${exporter.safeName(genus.genus)}.xlsx`, out);
+  } catch (e) { next(e); }
+});
+
 // Values that exist in the data, so the UI only offers real choices.
 app.get('/api/meta', (req, res) => {
   const feeding = db.prepare(`SELECT feeding_group AS key, COUNT(*) AS count FROM genera

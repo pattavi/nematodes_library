@@ -140,3 +140,11 @@ form.gform .ferr { color: #b3261e; margin: 0; font-size: .85rem; min-height: 1.1
 .d-head { flex-wrap: wrap; }
 .d-head h2 { min-width: 0; overflow-wrap: anywhere; }
 .d-actions { flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
+
+/* export */
+.addbtn { margin-left: 0; }
+.expbtn { margin-left: auto; border: 1px solid var(--accent); background: none; color: var(--accent); border-radius: 8px; padding: 5px 12px; }
+.expgenus { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 12px 0 0; }
+.chk, .radio { display: flex !important; grid-template-columns: none; align-items: center; gap: 8px; color: var(--text) !important; }
+.chk input, .radio input { width: auto !important; }
+.btnlink.primary { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 8px 16px; text-decoration: none; }

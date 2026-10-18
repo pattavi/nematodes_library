@@ -58,6 +58,7 @@
     asc.textContent = L.sortAsc; desc.textContent = L.sortDesc;
     document.querySelectorAll('[data-sort]').forEach((b) => b.classList.toggle('on', b.dataset.sort === state.sort));
     $('upload-btn').textContent = L.uploadBtn;
+    $('exp-btn').textContent = L.exportBtn;
     $('upload-btn').href = state.lang === 'en' ? '/upload?lang=en' : '/upload';
     document.querySelectorAll('[data-view]').forEach((b) => {
       b.textContent = b.dataset.view === 'map' ? L.viewMap : L.viewList;
@@ -264,6 +265,8 @@
         ${cap || (im && im.credit) ? `<p class="cap">${esc(cap)}${im.credit ? ` ${cap ? '· ' : ''}${esc(L.credit)}: ${esc(im.credit)}` : ''}</p>` : ''}
         <dl class="facts">${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
         ${note ? `<h3>${esc(L.notes)}</h3><p>${esc(note)}</p>` : ''}
+        <div class="expgenus"><a class="plain btnlink" data-expgenus href="/api/genera/${g.id}/export.xlsx" download>${esc(L.expGenus)}</a>
+          <label class="chk"><input type="checkbox" data-expgenus-img> ${esc(L.expGenusImg)}</label></div>
         <h3>${esc(L.locations)} (${g.locations.length})</h3>
         ${g.locations.length ? `<div id="minimap" class="minimap"></div>
           <ul class="locs">${g.locations.map((p) => `<li>${esc(provLabel(p.province))} · ${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}${p.collected_at ? ` · ${esc(p.collected_at)}` : ''}${p.is_sample ? ` <span class="muted">(${esc(L.sample)})</span>` : ''}
@@ -539,6 +542,50 @@
     if (r.status === 401) { await authFail(); err.textContent = L.eAuth; return; }
     if (!r.ok) { err.textContent = L.ePointRange('').replace(/^[^:：]+[:：]s*/, ''); return; }
     reloadCurrent();
+  });
+
+  // ---- Excel export ----
+  const xdlg = $('exp');
+
+  function exportHref(scope, embed) {
+    const p = new URLSearchParams();
+    if (scope === 'view') {
+      p.set('scope', 'view');
+      if (state.q) p.set('q', state.q);
+      if (state.feeding) p.set('feeding', state.feeding);
+      if (state.letter) p.set('letter', state.letter);
+      p.set('sort', state.sort);
+      if (state.view === 'map' && state.province) p.set('province', state.province); // province filter exists only in map view
+    }
+    if (embed) p.set('embed', '1');
+    return `/api/export.xlsx?${p}`;
+  }
+
+  function openExport() {
+    const L = t();
+    xdlg.innerHTML = `<div class="d-head"><h2 id="x-title" style="font-style:normal">${esc(L.expTitle)}</h2>
+        <button class="d-close" type="button" data-xclose>${esc(L.close)}</button></div>
+      <div class="gform" style="padding:0 16px 16px">
+        <label class="radio"><input type="radio" name="xs" value="view" checked> ${esc(L.expView)}</label>
+        <label class="radio"><input type="radio" name="xs" value="all"> ${esc(L.expAll)}</label>
+        <label class="chk"><input type="checkbox" id="xe"> ${esc(L.expEmbed)}</label>
+        <div class="btns"><a class="primary btnlink" id="xgo" href="${exportHref('view', false)}" download>${esc(L.expDownload)}</a></div>
+      </div>`;
+    xdlg.showModal();
+  }
+  function syncExportLink() {
+    const scope = xdlg.querySelector('[name=xs]:checked').value;
+    $('xgo').href = exportHref(scope, $('xe').checked);
+  }
+  $('exp-btn').addEventListener('click', openExport);
+  xdlg.addEventListener('change', syncExportLink);
+  xdlg.addEventListener('click', (e) => {
+    if (e.target === xdlg || e.target.closest('[data-xclose]')) xdlg.close();
+    else if (e.target.closest('#xgo')) setTimeout(() => xdlg.close(), 300);
+  });
+  dlg.addEventListener('change', (e) => {
+    if (!e.target.matches('[data-expgenus-img]') || !cur) return;
+    dlg.querySelector('[data-expgenus]').href = `/api/genera/${cur.id}/export.xlsx${e.target.checked ? '?embed=1' : ''}`;
   });
 
   function update() { writeUrl(); renderStatic(); renderChips(); load(); renderDetail(); renderAdminBtn(); renderAddBtn(); }
