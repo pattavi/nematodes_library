@@ -9,6 +9,31 @@ const { open } = require('./db');
 const { PROVINCES, isProvince } = require('./provinces');
 
 const app = express();
+app.disable('x-powered-by');
+// Behind a reverse proxy, set TRUST_PROXY=1 so the login lockout sees real client IPs.
+if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 1);
+
+// Pages only load scripts/styles from this server and cdnjs (Leaflet); map tiles from OpenStreetMap.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' https://cdnjs.cloudflare.com",
+  "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com", // inline style="" attributes are used in the UI
+  "img-src 'self' data: blob: https://tile.openstreetmap.org https://cdnjs.cloudflare.com",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ');
+app.use((req, res, next) => {
+  res.set({
+    'Content-Security-Policy': CSP,
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'same-origin',
+  });
+  next();
+});
 const db = open();
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads');
 

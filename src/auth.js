@@ -44,7 +44,7 @@ function create(env = process.env) {
 
   function setCookie(res, tok, maxAgeSec) {
     res.setHeader('Set-Cookie',
-      `${COOKIE}=${tok}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSec}`);
+      `${COOKIE}=${tok}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSec}${env.COOKIE_SECURE === '1' ? '; Secure' : ''}`);
   }
 
   function login(req, res) {
