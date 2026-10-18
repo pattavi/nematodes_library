@@ -148,3 +148,19 @@ form.gform .ferr { color: #b3261e; margin: 0; font-size: .85rem; min-height: 1.1
 .chk, .radio { display: flex !important; grid-template-columns: none; align-items: center; gap: 8px; color: var(--text) !important; }
 .chk input, .radio input { width: auto !important; }
 .btnlink.primary { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 8px 16px; text-decoration: none; }
+
+/* genus -> species */
+a.chip { text-decoration: none; color: inherit; }
+.crumb { margin: 0 0 8px; }
+.crumb a { color: var(--accent); }
+.splist { display: grid; gap: 6px; margin: 6px 0 10px; }
+.sprow { display: grid; grid-template-columns: 48px 1fr auto; gap: 10px; align-items: center; padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: 10px; text-decoration: none; color: inherit; background: var(--bg); }
+.sprow:hover, .sprow:focus-visible { border-color: var(--accent); outline: none; }
+.spthumb { width: 48px; height: 48px; border-radius: 8px; background: var(--accent-bg); overflow: hidden; display: block; }
+.spthumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.spmain { min-width: 0; overflow-wrap: anywhere; }
+.spcount { font-size: .8rem; text-align: right; }
+@media (max-width: 480px) { .sprow { grid-template-columns: 48px 1fr; } .spcount { grid-column: 2; text-align: left; } }
+.mg.genus { margin-top: 6px; font-weight: 600; }
+.mg.sp { margin-left: 14px; }
