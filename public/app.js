@@ -97,7 +97,8 @@
     $('count').textContent = L.count(n);
   }
 
-  const thumbUrl = (file) => `/uploads/thumbs/${encodeURIComponent(file.replace(/\.[^.]+$/, '.jpg'))}`;
+  const UP = window.STATIC_SITE ? 'uploads/' : '/uploads/'; // the static build serves images relative to the page
+  const thumbUrl = (file) => `${UP}thumbs/${encodeURIComponent(file.replace(/\.[^.]+$/, '.jpg'))}`;
 
   function renderGrid(items) {
     const L = t();
@@ -311,7 +312,7 @@
       sess.admin ? `<button data-edit>${esc(L.editSpecies)}</button><button class="danger" data-del>${esc(L.deleteSpecies)}</button>` : '') + `
       <div class="d-body">
         <p class="crumb"><a href="#G${g.id}">← ${esc(g.genus)}</a></p>
-        <div class="slides">${im ? `<img src="/uploads/${encodeURIComponent(im.file)}" alt="${title.replace(/<[^>]+>/g, '')}">` : esc(L.noImage)}
+        <div class="slides">${im ? `<img src="${UP}${encodeURIComponent(im.file)}" alt="${title.replace(/<[^>]+>/g, '')}">` : esc(L.noImage)}
           ${n > 1 ? `<button class="nav prev" data-slide="-1" aria-label="${esc(L.prev)}">‹</button>
                      <button class="nav next" data-slide="1" aria-label="${esc(L.next)}">›</button>` : ''}</div>
         ${n > 1 ? `<div class="dots">${s.images.map((_, i) => `<span class="${i === slide ? 'on' : ''}"></span>`).join('')}</div>` : ''}

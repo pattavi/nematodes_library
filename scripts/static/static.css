@@ -1,0 +1,2 @@
+/* Read-only build: hide everything that needs the server (login, upload, add, Excel export). */
+#admin-btn, #upload-btn, #add-btn, #exp-btn, .expgenus { display: none !important; }
