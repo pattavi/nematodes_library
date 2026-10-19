@@ -132,3 +132,10 @@ public/           หน้าเว็บ: index.html, upload.html, app.js, upl
 
 ข้อความและรูปของ NemaPlex เป็นของเจ้าของเดิม **อย่าคัดลอกรูปหรือข้อความจากเว็บนั้นมาใช้โดยไม่ได้รับอนุญาต**
 ใช้รูปที่คุณถ่ายเองหรือได้รับอนุญาต และใส่ที่มาในช่อง "ที่มาภาพ" ตอนอัปโหลด
+
+## Static read-only site (GitHub Pages)
+
+GitHub Pages cannot run Node, so `npm run build:static` writes a read-only snapshot of the library to `docs/`
+(list, search, detail pages, images and the map; no login, upload, editing or Excel export).
+Edit data on your own server as usual, run the command again, then commit `docs/`.
+In the repository's Settings → Pages choose the branch that holds `docs/` and the `/docs` folder.
