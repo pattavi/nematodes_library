@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const multer = require('multer');
 const sharp = require('sharp');
 const { open } = require('./db');
-const { PROVINCES, isProvince } = require('./provinces');
+const { PROVINCES, CENTERS, isProvince } = require('./provinces');
 
 const app = express();
 app.disable('x-powered-by');
@@ -284,7 +284,10 @@ const LAT = [5.5, 20.5], LNG = [97.3, 105.7]; // Thailand bounding box, decimal 
 function validateLocation(body) {
   const b = body && typeof body === 'object' ? body : {};
   const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-  const lat = num(b.lat), lng = num(b.lng);
+  const blank = (v) => v === '' || v == null;
+  let lat = num(b.lat), lng = num(b.lng);
+  // No coordinates given: default to the Mueang (capital) district of the province. Editable later.
+  if (blank(b.lat) && blank(b.lng) && typeof b.province === 'string' && isProvince(b.province)) [lat, lng] = CENTERS[b.province];
   if (lat == null || lat < LAT[0] || lat > LAT[1]) return { error: { field: 'lat', code: 'out_of_range' } };
   if (lng == null || lng < LNG[0] || lng > LNG[1]) return { error: { field: 'lng', code: 'out_of_range' } };
   if (typeof b.province !== 'string' || !isProvince(b.province)) return { error: { field: 'province', code: 'invalid' } };

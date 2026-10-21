@@ -245,6 +245,7 @@
         <label>${esc(L.dateLbl)}<input name="collected_at" type="date" value="${esc(v.collected_at || '')}"></label></div>
       <div class="row"><label>${esc(L.lat)}<input name="lat" inputmode="decimal" value="${esc(v.lat ?? '')}"></label>
         <label>${esc(L.lng)}<input name="lng" inputmode="decimal" value="${esc(v.lng ?? '')}"></label></div>
+      <p class="muted">${esc(L.coordBlank)}</p>
       <label>${esc(L.noteLbl)}<input name="note" maxlength="500" value="${esc(v.note || '')}"></label>
       <p class="ferr" id="pterr" role="alert"></p>
       <div class="btns"><button type="button" class="plain" data-ptcancel>${esc(L.cancel)}</button><button type="submit" class="primary">${esc(L.save)}</button></div></form>`;
@@ -629,10 +630,10 @@
     if (e.target.id !== 'ptform') return;
     e.preventDefault();
     const L = t(), f = e.target.elements;
-    const num = (v) => (/^\s*-?\d+(\.\d+)?\s*$/.test(v) ? Number(v) : NaN);
+    const num = (v) => (!v.trim() ? null : /^\s*-?\d+(\.\d+)?\s*$/.test(v) ? Number(v) : NaN); // blank -> server defaults to the province's Mueang district
     const body = { province: f.province.value, lat: num(f.lat.value), lng: num(f.lng.value), collected_at: f.collected_at.value, note: f.note.value };
     const err = $('pterr');
-    if (!body.province) { err.textContent = trimLead(L.ePointIncomplete('')); return; }
+    if (!body.province || (body.lat === null) !== (body.lng === null)) { err.textContent = trimLead(L.ePointIncomplete('')); return; }
     if (Number.isNaN(body.lat) || Number.isNaN(body.lng)) { err.textContent = trimLead(L.ePointRange('')); return; }
     const id = ptEdit && ptEdit.id;
     const r = await fetch(id ? `/api/locations/${id}` : `/api/species/${cur.id}/locations`, {

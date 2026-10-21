@@ -161,8 +161,8 @@
     const L = t();
     $('points').innerHTML = S.points.map((p, i) => `<div class="prow" data-pid="${p.id}">
       <label>${esc(L.province)}<select data-f="province">${provOptions(p.province)}</select></label>
-      <label>${esc(L.lat)}<input data-f="lat" inputmode="decimal" value="${esc(p.lat)}"></label>
-      <label>${esc(L.lng)}<input data-f="lng" inputmode="decimal" value="${esc(p.lng)}"></label>
+      <label>${esc(L.lat)}<input data-f="lat" inputmode="decimal" placeholder="${esc(L.coordBlank)}" value="${esc(p.lat)}"></label>
+      <label>${esc(L.lng)}<input data-f="lng" inputmode="decimal" placeholder="${esc(L.coordBlank)}" value="${esc(p.lng)}"></label>
       <div class="pbtns"><button type="button" class="plain" data-pick="${p.id}">${esc(L.pick)}</button>
         <button type="button" class="plain" data-rmpt="${p.id}" aria-label="${esc(L.remove)} ${i + 1}">×</button></div></div>`).join('');
   }
@@ -199,7 +199,9 @@
     for (const p of S.points) {
       if (!p.province && !String(p.lat).trim() && !String(p.lng).trim()) continue;
       n++;
-      if (!p.province || !String(p.lat).trim() || !String(p.lng).trim()) return { error: L.ePointIncomplete(n) };
+      const noLat = !String(p.lat).trim(), noLng = !String(p.lng).trim();
+      if (!p.province || noLat !== noLng) return { error: L.ePointIncomplete(n) };
+      if (noLat) { out.push({ province: p.province, lat: null, lng: null }); continue; } // server defaults to the province's Mueang district
       const lat = parseNum(p.lat), lng = parseNum(p.lng);
       if (!(lat >= LAT[0] && lat <= LAT[1] && lng >= LNG[0] && lng <= LNG[1])) return { error: L.ePointRange(n) };
       out.push({ province: p.province, lat, lng });
